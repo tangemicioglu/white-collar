@@ -110,6 +110,16 @@ def main(argv: Sequence[str] | None = None, *, adapters: RuntimeAdapters | None 
             error={"code": exc.code, "message": exc.message, "details": exc.details},
         )
         exit_code = 2
+    except OSError as exc:
+        policy = getattr(parsed, "policy", "read-only") if parsed else "read-only"
+        response = result(
+            ok=False,
+            command=_command_name(parsed),
+            policy=policy,
+            dry_run=bool(getattr(parsed, "dry_run", False)) if parsed else False,
+            error={"code": "io_error", "message": str(exc), "details": {}},
+        )
+        exit_code = 2
     print(json.dumps(response, sort_keys=True, separators=(",", ":")))
     return exit_code
 

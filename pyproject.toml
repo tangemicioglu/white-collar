@@ -9,6 +9,9 @@ description = "A narrow, agent-friendly local Office CLI"
 requires-python = ">=3.11"
 readme = "README.md"
 
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
 [project.scripts]
 white-collar = "whitecollar.cli:main"
 

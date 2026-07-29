@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 
 from conftest import write_plan
 from whitecollar.adapters.word import OoxmlWordAdapter
@@ -80,3 +82,17 @@ def test_plan_app_must_match_command(make_docx, tmp_path, capsys):
     plan = write_plan(tmp_path / "plan.json", target, tmp_path / "final.docx")
     assert main(["slides", "apply", "--plan", str(plan), "--dry-run"], adapters=adapters()) == 2
     assert output(capsys)["error"]["details"]["plan_app"] == "word"
+
+
+def test_module_entrypoint_is_machine_readable():
+    completed = subprocess.run(
+        [sys.executable, "-m", "whitecollar.cli", "mail", "search", "--query", "roadmap"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    value = json.loads(completed.stdout)
+    assert completed.returncode == 2
+    assert value["schema"] == "white-collar.result/v1"
+    assert value["error"]["code"] == "backend_unavailable"
+    assert completed.stderr == ""

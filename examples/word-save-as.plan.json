@@ -1,0 +1,20 @@
+{
+  "schema": "white-collar.plan/v1",
+  "app": "word",
+  "target": {
+    "path": "C:/work/brief.docx"
+  },
+  "policy": "review",
+  "operations": [
+    {
+      "op": "replace_text",
+      "find": "Quarterly Draft",
+      "replace": "Quarterly Review",
+      "occurrence": "all"
+    }
+  ],
+  "write": {
+    "mode": "save-as",
+    "path": "C:/work/brief-reviewed.docx"
+  }
+}
