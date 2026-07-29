@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://white-collar.local/schemas/plan-v1.schema.json",
+  "title": "white-collar plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "app", "target", "policy", "operations", "write"],
+  "properties": {
+    "schema": {"const": "white-collar.plan/v1"},
+    "app": {"enum": ["word", "slides"]},
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "expected_sha256": {"type": "string", "pattern": "^[A-Fa-f0-9]{64}$"}
+      }
+    },
+    "policy": {"enum": ["read-only", "review", "edit"]},
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["op", "find", "replace"],
+        "properties": {
+          "op": {"const": "replace_text"},
+          "find": {"type": "string", "minLength": 1},
+          "replace": {"type": "string"},
+          "occurrence": {"enum": ["first", "all"], "default": "all"}
+        }
+      }
+    },
+    "write": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "path"],
+          "properties": {"mode": {"const": "save-as"}, "path": {"type": "string", "minLength": 1}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "snapshot"],
+          "properties": {"mode": {"const": "in-place"}, "snapshot": {"type": "string", "minLength": 1}}
+        }
+      ]
+    }
+  }
+}

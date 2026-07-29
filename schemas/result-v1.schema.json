@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://white-collar.local/schemas/result-v1.schema.json",
+  "title": "white-collar result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "ok", "command", "policy", "dry_run"],
+  "properties": {
+    "schema": {"const": "white-collar.result/v1"},
+    "ok": {"type": "boolean"},
+    "command": {"type": "string"},
+    "policy": {"enum": ["read-only", "review", "edit"]},
+    "dry_run": {"type": "boolean"},
+    "target": {"type": "string"},
+    "data": {},
+    "changes": {"type": "array", "items": {"type": "object"}},
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "details"],
+      "properties": {
+        "code": {"type": "string"},
+        "message": {"type": "string"},
+        "details": {"type": "object"}
+      }
+    }
+  }
+}
