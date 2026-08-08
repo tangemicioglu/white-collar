@@ -5,7 +5,10 @@ import datetime as dt
 import hashlib
 import os
 import re
+import shutil
+import tempfile
 import time
+import zipfile
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -32,6 +35,7 @@ class Win32WordComAdapter:
         self._screenshotter = screenshotter or _default_screenshot
         self._snapshots: dict[str, list[dict[str, Any]]] = {}
         self._history: list[dict[str, Any]] = []
+        self._pending_comment_package_edits: dict[str, list[dict[str, Any]]] = {}
 
     def inspect(self, target: Path) -> dict[str, Any]:
         app = self._get_app()
@@ -77,7 +81,7 @@ class Win32WordComAdapter:
                 operations.append(method(app, doc, args))
             self._history.append({"operation": name, "document": doc.Name, "at": dt.datetime.now(dt.timezone.utc).isoformat()})
         if not dry_run and doc is not None and plan.write.mode != "none":
-            self._commit_write(doc, plan)
+            self._commit_write(app, doc, plan)
         return {"backend": "word-com", "written": not dry_run, "operations": operations}
 
     def _preflight_target(self, plan: Plan) -> None:
@@ -102,13 +106,30 @@ class Win32WordComAdapter:
             raise ValidationError("snapshot already exists", details={"path": str(snapshot)})
         snapshot.parent.mkdir(parents=True, exist_ok=True)
         save_copy_as = getattr(doc, "SaveCopyAs", None)
-        if not callable(save_copy_as):
-            raise ValidationError("Word COM document does not support SaveCopyAs; cannot create required snapshot")
-        save_copy_as(str(snapshot))
+        if callable(save_copy_as):
+            try:
+                # Some Word builds expose SaveCopyAs but reject every call with
+                # 0x800a1704. Keep the native path when it works (and for
+                # mockable adapters), then use the on-disk document as the
+                # faithful fallback for those builds.
+                save_copy_as(str(snapshot))
+                return
+            except Exception:
+                pass
+        source = Path(str(_safe_value(doc, "FullName", "")))
+        if not source.is_file():
+            raise ValidationError(
+                "Word COM could not create a snapshot and the open document has no on-disk file",
+                details={"source": str(source), "snapshot": str(snapshot)},
+            )
+        if _safe_value(doc, "Saved", True) is False:
+            doc.Save()
+        shutil.copy2(source, snapshot)
 
-    def _commit_write(self, doc: Any, plan: Plan) -> None:
+    def _commit_write(self, app: Any, doc: Any, plan: Plan) -> None:
         if plan.write.mode == "in-place":
             doc.Save()
+            self._commit_pending_comment_edits(app, doc, Path(str(_safe_value(doc, "FullName", ""))), reopen=True)
             return
         output = Path(plan.write.path or "")
         if output.exists():
@@ -116,9 +137,24 @@ class Win32WordComAdapter:
         output.parent.mkdir(parents=True, exist_ok=True)
         save_copy_as = getattr(doc, "SaveCopyAs", None)
         if callable(save_copy_as):
-            save_copy_as(str(output))
+            try:
+                save_copy_as(str(output))
+            except Exception:
+                # SaveCopyAs is broken in some current Word installations.
+                # SaveAs2 below is reliable, but changes the live document's
+                # name, so restore the original open target after writing.
+                source = Path(str(_safe_value(doc, "FullName", "")))
+                doc.SaveAs2(FileName=str(output), FileFormat=_file_format(output))
+                if source.resolve() != output.resolve():
+                    doc.Close(SaveChanges=False)
+                    doc = app.Documents.Open(FileName=str(source), ReadOnly=False, AddToRecentFiles=False)
         else:
+            source = Path(str(_safe_value(doc, "FullName", "")))
             doc.SaveAs2(FileName=str(output), FileFormat=_file_format(output))
+            if source.resolve() != output.resolve():
+                doc.Close(SaveChanges=False)
+                doc = app.Documents.Open(FileName=str(source), ReadOnly=False, AddToRecentFiles=False)
+        self._commit_pending_comment_edits(app, doc, output, reopen=False)
 
     def _get_app(self) -> Any:
         try:
@@ -308,7 +344,7 @@ class Win32WordComAdapter:
                         level = int(style_level)
                         break
             if level is not None:
-                paragraph.Range.ListFormat.ApplyListTemplateWithLevel(template, ContinuePreviousList=True, ApplyTo=0, DefaultListBehavior=0, Level=level)
+                paragraph.Range.ListFormat.ApplyListTemplateWithLevel(template, True, 0, 0, level)
                 applied.append(paragraph_index)
                 if args.get("font_name"):
                     paragraph.Range.Font.Name = args["font_name"]
@@ -439,7 +475,25 @@ class Win32WordComAdapter:
             _collapse_end(rng)
         else:
             rng = _insert_range(doc, position, args.get("bookmark"))
-        rng.InsertCrossReference(ReferenceType=reference_type, ReferenceItem=item, InsertAsHyperlink=bool(args.get("as_hyperlink", args.get("insert_as_hyperlink", True))))
+        reference_kind = args.get("reference_kind", args.get("ref_kind", -1))
+        if isinstance(reference_kind, str):
+            reference_kind = {
+                "content_text": -1,
+                "page_number": 7,
+                "position": 15,
+                "number_full_context": -4,
+                "number_relative_context": -2,
+                "number_no_context": -3,
+            }.get(reference_kind.strip().lower(), reference_kind)
+        rng.InsertCrossReference(
+            reference_type,
+            int(reference_kind),
+            item,
+            bool(args.get("as_hyperlink", args.get("insert_as_hyperlink", True))),
+            bool(args.get("include_position", False)),
+            bool(args.get("separate_numbers", False)),
+            str(args.get("separator_string", "")),
+        )
         return {"op": "word_live_insert_cross_reference", "reference_type": reference_type, "reference_item": item}
 
     def _word_live_insert_equation(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
@@ -450,7 +504,11 @@ class Win32WordComAdapter:
         else:
             rng = _insert_range(doc, args.get("position", "end"), args.get("bookmark"))
         rng.Text = equation
-        math = doc.OMaths.Add(rng)
+        doc.OMaths.Add(rng)
+        # Dynamic pywin32 binds the return value of OMaths.Add as a generic
+        # dispatch object named ``Add``. Re-fetching the collection item gives
+        # us the actual OMath interface, including BuildUp.
+        math = doc.OMaths.Item(doc.OMaths.Count)
         math.BuildUp()
         return {"op": "word_live_insert_equation", "equation": equation}
 
@@ -536,7 +594,10 @@ class Win32WordComAdapter:
 
     def _word_live_add_comment(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
         rng = _resolve_range(doc, args)
-        comment = doc.Comments.Add(Range=rng, Text=args.get("comment_text", args.get("text", "")), Author=args.get("author", "white-collar"), Initials=args.get("initials", "WC"))
+        # Word's Comments.Add COM signature is only (Range, Text); Author and
+        # Initials are document/application metadata, not accepted parameters
+        # by the current Word type library.
+        comment = doc.Comments.Add(rng, args.get("comment_text", args.get("text", "")))
         return {"op": "word_live_add_comment", "comment": _comment_dict(comment, _count(doc.Comments))}
 
     def _word_live_list_revisions(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
@@ -547,20 +608,46 @@ class Win32WordComAdapter:
 
     def _word_live_reply_to_comment(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
         comment = _comment(doc, args)
-        reply = comment.Replies.Add(Text=args.get("reply_text", args.get("text", "")), Author=args.get("author", "white-collar"), Initials=args.get("initials", "WC"))
+        reply = comment.Replies.Add(comment.Range, args.get("reply_text", args.get("text", "")))
         return {"op": "word_live_reply_to_comment", "comment": _comment_dict(reply, int(args.get("comment_index", 1)))}
 
     def _word_live_resolve_comment(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
         comment = _comment(doc, args)
-        if hasattr(comment, "Done"):
-            comment.Done = bool(args.get("resolved", args.get("resolve", True)))
-        else:
-            comment.Resolved = bool(args.get("resolved", args.get("resolve", True)))
-        return {"op": "word_live_resolve_comment", "resolved": bool(args.get("resolved", args.get("resolve", True)))}
+        resolved = bool(args.get("resolved", args.get("resolve", True)))
+        try:
+            comment.Done = resolved
+        except Exception:
+            # Modern Comments expose Done for compatibility, but current Word
+            # builds reject setting it through COM. Persist the same state in
+            # the OOXML threaded-comment extension after the write commit.
+            self._pending_comment_package_edits.setdefault(_doc_key(doc), []).append(
+                {"comment_index": int(args.get("comment_index", 1)), "resolved": resolved}
+            )
+        return {"op": "word_live_resolve_comment", "resolved": resolved}
+
+    def _commit_pending_comment_edits(self, app: Any, doc: Any, path: Path, *, reopen: bool) -> None:
+        edits = self._pending_comment_package_edits.pop(_doc_key(doc), [])
+        if not edits:
+            return
+        if not path.is_file():
+            raise ValidationError("cannot update comment resolution: Word file does not exist", details={"path": str(path)})
+        if reopen:
+            doc.Close(SaveChanges=False)
+        try:
+            _set_comment_resolution_in_package(path, edits)
+        finally:
+            if reopen:
+                app.Documents.Open(FileName=str(path), ReadOnly=False, AddToRecentFiles=False)
 
     def _word_live_delete_comment(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
         comment = _comment(doc, args)
-        comment.Delete()
+        try:
+            comment.Delete()
+        except Exception:
+            delete_thread = getattr(comment, "DeleteRecursively", None)
+            if not callable(delete_thread):
+                raise
+            delete_thread()
         return {"op": "word_live_delete_comment", "deleted": True}
 
     def _word_live_accept_revisions(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
@@ -933,6 +1020,53 @@ def _absolute_output(value: str) -> Path:
 
 def _file_format(path: Path) -> int:
     return {".docx": 12, ".pdf": 17, ".rtf": 6, ".txt": 2}.get(path.suffix.lower(), 12)
+
+
+def _set_comment_resolution_in_package(path: Path, edits: list[dict[str, Any]]) -> None:
+    comments_extended = "word/commentsExtended.xml"
+    comment_pattern = re.compile(rb"<w15:commentEx\b[^>]*?\/>")
+    temporary_name = None
+    try:
+        with zipfile.ZipFile(path, "r") as source_zip:
+            if comments_extended not in source_zip.namelist():
+                raise ValidationError(
+                    "Word file has no threaded-comment extension; cannot persist modern comment resolution",
+                    details={"path": str(path)},
+                )
+            infos = source_zip.infolist()
+            payloads = {info.filename: source_zip.read(info.filename) for info in infos}
+            payload = payloads[comments_extended]
+            entries = list(comment_pattern.finditer(payload))
+            for edit in edits:
+                index = int(edit["comment_index"])
+                if index < 1 or index > len(entries):
+                    raise ValidationError(
+                        "comment_index is out of range in threaded-comment extension",
+                        details={"comment_index": index, "count": len(entries)},
+                    )
+                match = entries[index - 1]
+                element = match.group(0)
+                value = b"1" if edit["resolved"] else b"0"
+                if re.search(rb"w15:done=\"[^\"]*\"", element):
+                    element = re.sub(rb"w15:done=\"[^\"]*\"", b'w15:done="' + value + b'"', element, count=1)
+                else:
+                    element = element[:-2] + b' w15:done="' + value + b'"/>'
+                payload = payload[: match.start()] + element + payload[match.end() :]
+                entries = list(comment_pattern.finditer(payload))
+            payloads[comments_extended] = payload
+
+        with tempfile.NamedTemporaryFile(
+            mode="wb", suffix=path.suffix, prefix=f".{path.stem}-", dir=path.parent, delete=False
+        ) as temporary:
+            temporary_name = Path(temporary.name)
+        with zipfile.ZipFile(temporary_name, "w") as destination_zip:
+            for info in infos:
+                destination_zip.writestr(info, payloads[info.filename])
+        os.replace(temporary_name, path)
+        temporary_name = None
+    finally:
+        if temporary_name is not None:
+            temporary_name.unlink(missing_ok=True)
 
 
 def _sha256(path: Path) -> str:

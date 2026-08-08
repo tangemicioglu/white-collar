@@ -19,6 +19,7 @@ white-collar = "whitecollar.cli:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = ["real_word: exercises the installed Microsoft Word COM server"]
 
 [tool.setuptools.packages.find]
 include = ["whitecollar*"]

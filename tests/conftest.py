@@ -7,6 +7,24 @@ from pathlib import Path
 import pytest
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--run-real-word",
+        action="store_true",
+        default=False,
+        help="run integration tests against an installed Microsoft Word instance",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    if config.getoption("--run-real-word"):
+        return
+    skip = pytest.mark.skip(reason="pass --run-real-word to exercise Microsoft Word COM")
+    for item in items:
+        if "real_word" in item.keywords:
+            item.add_marker(skip)
+
+
 @pytest.fixture
 def make_docx():
     def factory(path: Path, *paragraphs: str) -> Path:

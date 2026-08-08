@@ -81,7 +81,7 @@ WORD_COM_REQUIRED_ARGS = {
     "word_live_insert_image": {"image_path"},
     "word_live_insert_cross_reference": set(),
     "word_live_insert_equation": {"equation"},
-    "word_live_find_text": {"find_text"},
+    "word_live_find_text": set(),
     "word_live_add_comment": set(),
     "word_live_reply_to_comment": set(),
     "word_live_add_bookmark": {"bookmark_name"},

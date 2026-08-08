@@ -165,3 +165,14 @@ Run the complete review gate with:
 python -m pytest -q
 python -m compileall -q whitecollar
 ```
+
+On Windows with Microsoft Word installed, run the live COM gate as well:
+
+```powershell
+python -m pytest -q --run-real-word
+```
+
+That opt-in test starts an isolated Word instance, creates a real `.docx`, and
+invokes every registered Word COM semantic operation through the public plan
+boundary. It is intentionally separate because Office is not required for the
+normal test suite.
