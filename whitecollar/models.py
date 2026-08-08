@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .errors import ValidationError
+from .word_ops import WORD_COM_OPERATIONS, WORD_COM_REQUIRED_ARGS
 
 PLAN_SCHEMA = "white-collar.plan/v1"
 RESULT_SCHEMA = "white-collar.result/v1"
@@ -51,7 +52,7 @@ class Target:
 
 @dataclass(frozen=True)
 class WriteIntent:
-    mode: Literal["save-as", "in-place"]
+    mode: Literal["none", "save-as", "in-place"]
     path: str | None = None
     snapshot: str | None = None
 
@@ -61,6 +62,10 @@ class WriteIntent:
             raise ValidationError("write must be an object")
         _expect_keys(raw, required={"mode"}, optional={"path", "snapshot"}, context="write")
         mode = raw["mode"]
+        if mode == "none":
+            if raw.get("path") is not None or raw.get("snapshot") is not None:
+                raise ValidationError("write.none does not accept write.path or write.snapshot")
+            return cls("none")
         if mode == "save-as":
             path = _absolute_path(raw.get("path"), "write.path")
             if Path(path) == Path(target.path):
@@ -121,17 +126,43 @@ def _validate_operation(app: str, raw: Any, index: int) -> dict[str, Any]:
     context = f"operations[{index}]"
     if not isinstance(raw, dict):
         raise ValidationError(f"{context} must be an object")
-    _expect_keys(raw, required={"op", "find", "replace"}, optional={"occurrence"}, context=context)
-    if raw["op"] != "replace_text":
-        raise ValidationError(f"{context}.op is unsupported for {app}")
-    if not isinstance(raw["find"], str) or not raw["find"]:
-        raise ValidationError(f"{context}.find must be a non-empty string")
-    if not isinstance(raw["replace"], str):
-        raise ValidationError(f"{context}.replace must be a string")
-    occurrence = raw.get("occurrence", "all")
-    if occurrence not in {"all", "first"}:
-        raise ValidationError(f"{context}.occurrence must be 'all' or 'first'")
-    return {"op": "replace_text", "find": raw["find"], "replace": raw["replace"], "occurrence": occurrence}
+    if not isinstance(raw.get("op"), str):
+        raise ValidationError(f"{context}.op must be a string")
+    operation = raw["op"]
+    if operation == "replace_text":
+        _expect_keys(raw, required={"op", "find", "replace"}, optional={"occurrence"}, context=context)
+        if not isinstance(raw["find"], str) or not raw["find"]:
+            raise ValidationError(f"{context}.find must be a non-empty string")
+        if not isinstance(raw["replace"], str):
+            raise ValidationError(f"{context}.replace must be a string")
+        occurrence = raw.get("occurrence", "all")
+        if occurrence not in {"all", "first"}:
+            raise ValidationError(f"{context}.occurrence must be 'all' or 'first'")
+        return {"op": operation, "find": raw["find"], "replace": raw["replace"], "occurrence": occurrence}
+    if app == "word" and operation in WORD_COM_OPERATIONS:
+        _expect_keys(raw, required={"op"}, optional={"args"}, context=context)
+        args = raw.get("args", {})
+        if not isinstance(args, dict):
+            raise ValidationError(f"{context}.args must be an object")
+        missing = WORD_COM_REQUIRED_ARGS.get(operation, set()) - set(args)
+        if missing:
+            raise ValidationError(f"{context}.args is missing required field(s): {', '.join(sorted(missing))}")
+        if operation == "word_live_add_table" and not ("columns" in args or "cols" in args):
+            raise ValidationError(f"{context}.args requires columns or cols")
+        if operation in {"word_live_delete_text", "word_live_format_text", "word_live_get_paragraph_format", "word_live_set_paragraph_spacing"}:
+            has_range = {"start", "end"}.issubset(args) or "start_paragraph" in args or "paragraph_index" in args
+            if not has_range:
+                raise ValidationError(f"{context}.args must identify a character or paragraph range")
+        if operation == "word_live_add_comment" and not ("comment_text" in args or "text" in args):
+            raise ValidationError(f"{context}.args requires text or comment_text")
+        if operation == "word_live_add_comment" and not (
+            {"start", "end"}.issubset(args) or "start_paragraph" in args or "paragraph_index" in args or "target_text" in args
+        ):
+            raise ValidationError(f"{context}.args must identify a comment target range")
+        if operation == "word_live_reply_to_comment" and not ("reply_text" in args or "text" in args):
+            raise ValidationError(f"{context}.args requires text or reply_text")
+        return {"op": operation, "args": args}
+    raise ValidationError(f"{context}.op is unsupported for {app}")
 
 
 def result(

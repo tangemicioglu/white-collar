@@ -53,6 +53,14 @@ def test_edit_allows_in_place_only_with_explicit_snapshot():
         Plan.from_dict(raw)
 
 
+def test_word_com_read_operation_uses_read_only_and_no_write_intent():
+    raw = json.loads(Path("tests/fixtures/word-replace-plan.json").read_text(encoding="utf-8"))
+    raw["operations"] = [{"op": "word_live_get_text", "args": {}}]
+    raw["policy"] = "read-only"
+    raw["write"] = {"mode": "none"}
+    authorize_plan(Plan.from_dict(raw), dry_run=False)
+
+
 def test_schema_documents_are_valid_json():
     for path in Path("schemas").glob("*.schema.json"):
         assert json.loads(path.read_text(encoding="utf-8"))["$schema"].endswith("2020-12/schema")

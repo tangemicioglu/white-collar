@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .adapters import MailAdapter, OoxmlWordAdapter, SlidesAdapter, UnavailableMailAdapter, UnavailableSlidesAdapter, WordAdapter
+from .adapters import MailAdapter, OoxmlWordAdapter, SlidesAdapter, UnavailableMailAdapter, UnavailableSlidesAdapter, Win32WordComAdapter, WordAdapter
 from .errors import ValidationError
 from .models import Plan
 from .policy import authorize_plan, require_read
@@ -17,8 +17,9 @@ class RuntimeAdapters:
     mail: MailAdapter
 
     @classmethod
-    def local(cls) -> "RuntimeAdapters":
-        return cls(OoxmlWordAdapter(), UnavailableSlidesAdapter(), UnavailableMailAdapter())
+    def local(cls, *, word_backend: str = "local") -> "RuntimeAdapters":
+        word = Win32WordComAdapter() if word_backend == "com" else OoxmlWordAdapter()
+        return cls(word, UnavailableSlidesAdapter(), UnavailableMailAdapter())
 
 
 def inspect_document(app: str, target: Path, policy: str, adapters: RuntimeAdapters) -> dict[str, Any]:

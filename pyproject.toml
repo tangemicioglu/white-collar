@@ -11,6 +11,7 @@ readme = "README.md"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+office = ["Pillow>=10", "pywin32>=306; platform_system == 'Windows'"]
 
 [project.scripts]
 white-collar = "whitecollar.cli:main"

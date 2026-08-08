@@ -42,8 +42,13 @@ python -m pip install -e ".[dev]"
 python -m pytest -q
 ```
 
-The editable install creates the `white-collar` command. The Word adapter uses
-only the Python standard library; `pywin32` and Microsoft Office are not required.
+The editable install creates the `white-collar` command. The default Word adapter
+uses only the Python standard library; `pywin32` and Microsoft Office are not
+required. Install the optional COM dependencies on Windows for the live backend:
+
+```powershell
+python -m pip install -e ".[office]"
+```
 
 ## Commands
 
@@ -54,6 +59,8 @@ standard output using `white-collar.result/v1`.
 white-collar word inspect C:\work\brief.docx
 white-collar word apply --plan C:\work\replace.plan.json --dry-run
 white-collar word apply --plan C:\work\replace.plan.json
+white-collar word inspect C:\work\brief.docx --backend com
+white-collar word apply --plan C:\work\live.plan.json --backend com
 
 white-collar slides inspect C:\work\deck.pptx
 white-collar slides apply --plan C:\work\slides.plan.json --dry-run
@@ -120,6 +127,11 @@ The policy is embedded in every mutation plan and checked before an adapter is
 called. `review` is intended for agent workflows that produce a new artifact for
 human review. `edit` is the only profile that permits replacing the target, and
 the plan must provide a distinct snapshot path. Mail is read-only in v0.1.
+
+The opt-in COM backend covers the finite Word live-operation vocabulary documented
+in [the Word COM operation catalog](docs/word-com-operations.md). It requires the
+target document to already be open in Word and creates one native Word undo record
+per semantic operation. The default backend remains Office-free.
 
 `--dry-run` performs real parsing, targeting, hash checks, and match discovery but
 does not create an output or snapshot. A live Word apply fails closed if an

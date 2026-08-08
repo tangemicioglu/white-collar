@@ -1,6 +1,7 @@
 from .mail import MailAdapter, UnavailableMailAdapter
 from .slides import SlidesAdapter, UnavailableSlidesAdapter
 from .word import OoxmlWordAdapter, WordAdapter
+from .word_com import Win32WordComAdapter
 
 __all__ = [
     "MailAdapter",
@@ -9,4 +10,5 @@ __all__ = [
     "UnavailableMailAdapter",
     "UnavailableSlidesAdapter",
     "WordAdapter",
+    "Win32WordComAdapter",
 ]
