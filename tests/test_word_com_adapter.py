@@ -138,6 +138,23 @@ def test_replace_routes_through_fake_word_and_groups_undo():
     assert app.UndoRecord.events[-1][0] == "end"
 
 
+def test_legacy_replace_text_plan_is_supported_by_com_backend():
+    app = FakeApp()
+    adapter = Win32WordComAdapter(app_factory=lambda: app)
+    plan = Plan.from_dict(
+        {
+            "schema": "white-collar.plan/v1",
+            "app": "word",
+            "target": {"path": r"C:\work\brief.docx"},
+            "policy": "edit",
+            "operations": [{"op": "replace_text", "find": "Draft", "replace": "Final"}],
+            "write": {"mode": "in-place", "snapshot": r"C:\work\before.docx"},
+        }
+    )
+    value = adapter.apply(plan, dry_run=False)
+    assert value["operations"][0]["op"] == "word_live_replace_text"
+
+
 def test_read_operation_works_with_none_write_and_read_only_policy():
     app = FakeApp()
     adapter = Win32WordComAdapter(app_factory=lambda: app)

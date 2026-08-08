@@ -59,7 +59,7 @@ class Win32WordComAdapter:
         for operation in plan.operations:
             name = operation["op"]
             args = _operation_args(operation)
-            if name not in WORD_COM_OPERATIONS:
+            if name not in WORD_COM_OPERATIONS and name != "replace_text":
                 raise ValidationError(f"unsupported Word COM operation: {name}")
             if dry_run and name in WORD_COM_MUTATING_OPERATIONS:
                 operations.append({"op": name, "dry_run": True, "args": args})
@@ -69,7 +69,8 @@ class Win32WordComAdapter:
                 continue
             if doc is None:
                 doc = _find_document(app, plan.target.path)
-            method = getattr(self, f"_{name}", None)
+            dispatch_name = "word_live_replace_text" if name == "replace_text" else name
+            method = getattr(self, f"_{dispatch_name}", None)
             if method is None:
                 raise ValidationError(f"Word operation is registered but not implemented: {name}")
             with self._undo(app, name) if name in WORD_COM_MUTATING_OPERATIONS else contextlib.nullcontext():
