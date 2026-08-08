@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import datetime as dt
+import hashlib
 import os
 import re
 import time
@@ -52,6 +53,7 @@ class Win32WordComAdapter:
         if any(operation["op"] != "word_live_list_open" for operation in plan.operations):
             doc = _find_document(app, plan.target.path)
         if not dry_run and doc is not None and plan.write.mode != "none":
+            self._preflight_target(plan)
             self._prepare_write(doc, plan)
         operations = []
         for operation in plan.operations:
@@ -76,6 +78,20 @@ class Win32WordComAdapter:
         if not dry_run and doc is not None and plan.write.mode != "none":
             self._commit_write(doc, plan)
         return {"backend": "word-com", "written": not dry_run, "operations": operations}
+
+    def _preflight_target(self, plan: Plan) -> None:
+        target = Path(plan.target.path)
+        if plan.target.expected_sha256 and target.is_file():
+            actual = _sha256(target)
+            if actual.lower() != plan.target.expected_sha256.lower():
+                raise ValidationError(
+                    "target SHA-256 does not match plan",
+                    details={"expected": plan.target.expected_sha256, "actual": actual},
+                )
+        if plan.write.mode == "save-as":
+            output = Path(plan.write.path or "")
+            if output.exists():
+                raise ValidationError("save-as path already exists", details={"path": str(output)})
 
     def _prepare_write(self, doc: Any, plan: Plan) -> None:
         if plan.write.mode != "in-place":
@@ -916,6 +932,14 @@ def _absolute_output(value: str) -> Path:
 
 def _file_format(path: Path) -> int:
     return {".docx": 12, ".pdf": 17, ".rtf": 6, ".txt": 2}.get(path.suffix.lower(), 12)
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _doc_key(doc: Any) -> str:

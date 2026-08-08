@@ -158,6 +158,21 @@ def test_mutating_com_dry_run_never_dispatches_to_document():
     assert app.UndoRecord.events == []
 
 
+def test_com_preflight_rejects_existing_save_as_before_dispatching_operation(tmp_path):
+    app = FakeApp()
+    output = tmp_path / "existing.docx"
+    output.write_text("do not overwrite", encoding="utf-8")
+    plan = plan_for(
+        "word_live_insert_text",
+        {"text": "hello"},
+        write={"mode": "save-as", "path": str(output)},
+    )
+    adapter = Win32WordComAdapter(app_factory=lambda: app)
+    with pytest.raises(ValidationError, match="already exists"):
+        adapter.apply(plan, dry_run=False)
+    assert not hasattr(app.document, "saved_copy")
+
+
 @pytest.mark.parametrize("operation,args", [("word_live_insert_text", {}), ("word_live_find_text", {})])
 def test_operation_specific_arguments_are_validated(operation, args):
     with pytest.raises(ValidationError, match="missing required"):
