@@ -42,4 +42,13 @@ which keeps tests and automation usable without Word.
 `tests/test_word_com_real.py` is the live verification harness. With Word
 installed, `python -m pytest -q --run-real-word` creates a disposable real
 document and executes all 45 registered Word operations through the plan and
-adapter boundary; it does not use fake COM objects.
+adapter boundary; it does not use fake COM objects. The harness checks the
+postcondition of each operation, reopens every snapshot in Word, and captures
+the Word window after every mutating operation. Set
+`WHITE_COLLAR_REAL_WORD_ARTIFACT_DIR` to retain those PNG screenshots and
+snapshot `.docx` files for review, for example:
+
+```powershell
+$env:WHITE_COLLAR_REAL_WORD_ARTIFACT_DIR = "$pwd\.real-word-artifacts"
+python -m pytest -q tests/test_word_com_real.py --run-real-word
+```

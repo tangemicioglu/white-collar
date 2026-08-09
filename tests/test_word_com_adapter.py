@@ -30,9 +30,9 @@ class FakeFind:
     def ClearFormatting(self):
         pass
 
-    def Execute(self, **kwargs):
-        self.calls.append(kwargs)
-        return 2
+    def Execute(self, *args, **kwargs):
+        self.calls.append(kwargs if kwargs else args)
+        return 2 if kwargs else len(self.calls) == 1
 
 
 class FakeRange:
@@ -76,11 +76,19 @@ class FakeDoc:
         self.TrackRevisions = False
         self.Saved = True
         self.Content = FakeRange("Draft")
+        self._find = self.Content.Find
         self.Paragraphs = Collection(FakeParagraph("Draft"))
         self.Sections = Collection()
         self.Tables = Collection()
         self.Bookmarks = SimpleNamespace(Exists=lambda name: False)
         self.Application = SimpleNamespace(Selection=SimpleNamespace(Range=FakeRange()))
+
+    def Range(self, start, end):
+        result = FakeRange("Draft" if int(start) == 0 else "")
+        result.Start = int(start)
+        result.End = int(end)
+        result.Find = self._find
+        return result
 
     def SaveCopyAs(self, path):
         self.saved_copy = path
@@ -133,7 +141,7 @@ def test_replace_routes_through_fake_word_and_groups_undo():
     value = adapter.apply(plan, dry_run=False)
     assert value["backend"] == "word-com"
     assert value["operations"][0]["op"] == "word_live_replace_text"
-    assert app.document.Content.Find.calls == [{"Replace": 2}]
+    assert app.document.Content.Find.calls == [()]
     assert app.UndoRecord.events[0][0] == "start"
     assert app.UndoRecord.events[-1][0] == "end"
 

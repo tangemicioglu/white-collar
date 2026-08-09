@@ -174,5 +174,20 @@ python -m pytest -q --run-real-word
 
 That opt-in test starts an isolated Word instance, creates a real `.docx`, and
 invokes every registered Word COM semantic operation through the public plan
-boundary. It is intentionally separate because Office is not required for the
-normal test suite.
+boundary. It asserts operation-specific postconditions (document text,
+formatting, tables, lists, headings, revisions, comments, fields, images,
+sections, properties, and deletion), validates every snapshot as a reopenable
+Word file, and captures a real Word-window screenshot after each mutation.
+It is intentionally separate because Office is not required for the normal
+test suite.
+
+To retain the live evidence instead of putting it under pytest's temporary
+directory, set an artifact directory before running the live gate:
+
+```powershell
+$env:WHITE_COLLAR_REAL_WORD_ARTIFACT_DIR = "$pwd\.real-word-artifacts"
+python -m pytest -q tests/test_word_com_real.py --run-real-word
+```
+
+The ignored artifact directory contains the screenshots, native Word
+`SaveCopyAs` snapshots, and the source copies used to validate each capture.

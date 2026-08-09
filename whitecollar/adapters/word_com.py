@@ -212,7 +212,8 @@ class Win32WordComAdapter:
         position = args.get("position", "end")
         bookmark = args.get("bookmark")
         rng = _insert_range(doc, position, bookmark)
-        with _tracking(doc, bool(args.get("track_changes"))):
+        tracking = bool(args["track_changes"]) if "track_changes" in args else None
+        with _tracking(doc, tracking):
             chunks = [text[i : i + 30000] for i in range(0, max(len(text), 1), 30000)]
             if position == "start":
                 for chunk in reversed(chunks):
@@ -225,7 +226,8 @@ class Win32WordComAdapter:
 
     def _word_live_delete_text(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
         rng = _resolve_range(doc, args)
-        with _tracking(doc, bool(args.get("track_changes"))):
+        tracking = bool(args["track_changes"]) if "track_changes" in args else None
+        with _tracking(doc, tracking):
             deleted = str(_safe_value(rng, "Text", ""))
             rng.Delete()
         return {"op": "word_live_delete_text", "characters": len(deleted)}
@@ -233,22 +235,31 @@ class Win32WordComAdapter:
     def _word_live_replace_text(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
         find_text = _required_string(args, "find_text")
         replacement = str(args.get("replace_text", ""))
-        finder = doc.Content.Find
-        finder.ClearFormatting()
-        finder.Replacement.ClearFormatting()
-        finder.Text = find_text
-        finder.Replacement.Text = replacement
-        finder.Forward = True
-        finder.Wrap = 1
-        finder.Format = False
-        for prop in ("MatchCase", "MatchWholeWord", "MatchWildcards"):
-            if prop in args:
-                setattr(finder, prop, bool(args[prop]))
         replace_all = bool(args.get("replace_all", True))
-        with _tracking(doc, bool(args.get("track_changes"))):
-            result = finder.Execute(Replace=2 if replace_all else 1)
-        count = int(result) if isinstance(result, (int, float)) else None
-        return {"op": "word_live_replace_text", "find": find_text, "replace": replacement, "replace_all": replace_all, "replacements": count}
+        matches: list[tuple[int, int]] = []
+        cursor = int(doc.Content.Start)
+        content_end = int(doc.Content.End)
+        while cursor < content_end:
+            rng = doc.Range(cursor, content_end)
+            finder = _configure_find(rng.Find, find_text, args)
+            if not finder.Execute():
+                break
+            start, end = int(rng.Start), int(rng.End)
+            if end <= cursor:
+                break
+            matches.append((start, end))
+            if not replace_all:
+                break
+            cursor = end
+
+        tracking = bool(args["track_changes"]) if "track_changes" in args else None
+        with _tracking(doc, tracking):
+            # Replace from the end so earlier character offsets remain valid.
+            # Assigning Range.Text is reliable across current Word builds and
+            # preserves real tracked revisions when tracking is enabled.
+            for start, end in reversed(matches):
+                doc.Range(start, end).Text = replacement
+        return {"op": "word_live_replace_text", "find": find_text, "replace": replacement, "replace_all": replace_all, "replacements": len(matches)}
 
     def _word_live_insert_paragraphs(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
         paragraphs = args.get("paragraphs")
@@ -374,8 +385,9 @@ class Win32WordComAdapter:
 
     def _word_live_format_table(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
         table = _table(doc, args)
-        if args.get("alignment") is not None:
-            table.Rows.Alignment = _enum(args["alignment"], {"left": 0, "center": 1, "right": 2}, "alignment")
+        table_alignment = args.get("alignment", args.get("table_alignment"))
+        if table_alignment is not None:
+            table.Rows.Alignment = _enum(table_alignment, {"left": 0, "center": 1, "right": 2}, "alignment")
         if args.get("autofit"):
             table.AutoFitBehavior(1)
         if args.get("style"):
@@ -536,9 +548,16 @@ class Win32WordComAdapter:
     def _word_live_get_page_text(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
         page = int(args.get("page", 1))
         end_page = int(args.get("end_page", page))
-        start = doc.GoTo(What=1, Which=1, Count=page)
-        end = doc.GoTo(What=1, Which=1, Count=end_page + 1)
-        return {"op": "word_live_get_page_text", "page": page, "end_page": end_page, "text": str(_safe_value(doc.Range(start.Start, end.Start), "Text", ""))}
+        total_pages = max(1, int(doc.ComputeStatistics(2)))
+        if page < 1 or end_page < page:
+            raise ValidationError("page must be positive and end_page must not precede page")
+        if page > total_pages:
+            text = ""
+        else:
+            start = _page_boundary(doc, page, total_pages)
+            end = _page_boundary(doc, min(end_page + 1, total_pages + 1), total_pages)
+            text = str(_safe_value(doc.Range(start, end), "Text", ""))
+        return {"op": "word_live_get_page_text", "page": page, "end_page": end_page, "text": text}
 
     def _word_live_get_paragraph_format(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
         paragraphs = _paragraph_range(doc, args).Paragraphs
@@ -707,17 +726,39 @@ class Win32WordComAdapter:
         section = _section(doc, args)
         position = args.get("position", "footer")
         target = section.Headers(1) if position == "header" else section.Footers(1)
-        target.PageNumbers.Add(PageNumberAlignment=_enum(args.get("alignment", "center"), {"left": 0, "center": 1, "right": 2}, "alignment"))
+        existing = str(_safe_value(target.Range, "Text", "")).replace("\r", "").replace("\a", "").strip()
+        if existing:
+            # Keep authored header/footer text in its own paragraph. Word's
+            # PageNumbers collection positions fields independently and can
+            # overlap centered authored text, so use explicit PAGE/NUMPAGES
+            # fields in a dedicated paragraph instead.
+            target.Range.InsertAfter("\r")
+        paragraph = target.Range.Paragraphs(target.Range.Paragraphs.Count).Range.Duplicate
+        paragraph.Collapse(1)
         if args.get("prefix"):
-            target.Range.InsertBefore(args["prefix"])
+            paragraph.InsertAfter(str(args["prefix"]))
+            paragraph.Collapse(0)
+        doc.Fields.Add(Range=paragraph, Type=33)  # wdFieldPage
         if args.get("include_total"):
-            field_range = target.Range.Duplicate
-            _collapse_end(field_range)
-            field_range.InsertAfter(" / ")
-            doc.Fields.Add(Range=field_range, Type=26)
+            paragraph = target.Range.Paragraphs(target.Range.Paragraphs.Count).Range.Duplicate
+            paragraph.Collapse(0)
+            paragraph.InsertAfter(" / ")
+            paragraph.Collapse(0)
+            doc.Fields.Add(Range=paragraph, Type=26)  # wdFieldNumPages
         if args.get("suffix"):
-            target.Range.InsertAfter(args["suffix"])
-        return {"op": "word_live_add_page_numbers", "section": int(args.get("section_index", 1)), "position": position}
+            paragraph = target.Range.Paragraphs(target.Range.Paragraphs.Count).Range.Duplicate
+            paragraph.Collapse(0)
+            paragraph.InsertAfter(str(args["suffix"]))
+        target.Range.Paragraphs(target.Range.Paragraphs.Count).Range.ParagraphFormat.Alignment = _enum(
+            args.get("alignment", "center"), {"left": 0, "center": 1, "right": 2}, "alignment"
+        )
+        doc.Fields.Update()
+        return {
+            "op": "word_live_add_page_numbers",
+            "section": int(args.get("section_index", 1)),
+            "position": position,
+            "fields": int(target.Range.Fields.Count),
+        }
 
     def _word_live_add_section_break(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
         kind = _enum(args.get("break_type", "new_page"), {"new_page": 2, "continuous": 3, "even_page": 4, "odd_page": 5}, "break_type")
@@ -769,7 +810,25 @@ class Win32WordComAdapter:
 
     def _word_screen_capture(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
         output = _absolute_output(_required_string(args, "output_path"))
-        hwnd = int(doc.ActiveWindow.Hwnd)
+        try:
+            app.Visible = True
+        except Exception:
+            pass
+        try:
+            doc.Activate()
+        except Exception:
+            pass
+        window = doc.ActiveWindow
+        try:
+            window.Activate()
+        except Exception:
+            pass
+        try:
+            app.ScreenRefresh()
+        except Exception:
+            pass
+        time.sleep(0.15)
+        hwnd = int(window.Hwnd)
         self._screenshotter(hwnd, output)
         return {"op": "word_screen_capture", "output_path": str(output)}
 
@@ -805,10 +864,46 @@ def _default_word_app():
 
 def _default_screenshot(hwnd: int, output: Path) -> None:
     try:
-        from PIL import ImageGrab
+        from PIL import Image, ImageGrab
     except ImportError as exc:
         raise BackendUnavailableError("word-screen-capture") from exc
-    image = ImageGrab.grab(window=hwnd)
+    try:
+        import win32gui
+
+        win32gui.ShowWindow(hwnd, 9)
+        win32gui.SetForegroundWindow(hwnd)
+    except Exception:
+        pass
+    time.sleep(0.2)
+    image = None
+    try:
+        import ctypes
+        import win32gui
+        import win32ui
+
+        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+        width, height = right - left, bottom - top
+        if width <= 0 or height <= 0:
+            raise RuntimeError("Word window has no visible dimensions")
+        window_dc = win32gui.GetWindowDC(hwnd)
+        source_dc = win32ui.CreateDCFromHandle(window_dc)
+        memory_dc = source_dc.CreateCompatibleDC()
+        bitmap = win32ui.CreateBitmap()
+        bitmap.CreateCompatibleBitmap(source_dc, width, height)
+        memory_dc.SelectObject(bitmap)
+        try:
+            rendered = ctypes.windll.user32.PrintWindow(hwnd, memory_dc.GetSafeHdc(), 2)
+            if not rendered:
+                raise RuntimeError("PrintWindow could not render the Word window")
+            bits = bitmap.GetBitmapBits(True)
+            image = Image.frombuffer("RGB", (width, height), bits, "raw", "BGRX", 0, 1)
+        finally:
+            win32gui.DeleteObject(bitmap.GetHandle())
+            memory_dc.DeleteDC()
+            source_dc.DeleteDC()
+            win32gui.ReleaseDC(hwnd, window_dc)
+    except Exception:
+        image = ImageGrab.grab(window=hwnd)
     output.parent.mkdir(parents=True, exist_ok=True)
     image.save(output, format="PNG")
 
@@ -837,8 +932,8 @@ def _undo_record(app: Any, name: str):
 
 
 @contextlib.contextmanager
-def _tracking(doc: Any, enabled: bool) -> Iterator[None]:
-    if not enabled:
+def _tracking(doc: Any, enabled: bool | None) -> Iterator[None]:
+    if enabled is None:
         yield
         return
     previous = bool(doc.TrackRevisions)
@@ -965,6 +1060,25 @@ def _style_name(paragraph: Any) -> str | None:
 
 def _range_info(rng: Any) -> dict[str, Any]:
     return {"start": _safe_value(rng, "Start"), "end": _safe_value(rng, "End")}
+
+
+def _page_boundary(doc: Any, page: int, total_pages: int) -> int:
+    content_start = int(doc.Content.Start)
+    content_end = int(doc.Content.End)
+    if page <= 1:
+        return content_start
+    if page > total_pages:
+        return content_end
+
+    low, high = content_start, max(content_start, content_end - 1)
+    while low < high:
+        middle = (low + high) // 2
+        probe = doc.Range(middle, min(middle + 1, content_end))
+        if int(probe.Information(3)) >= page:
+            high = middle
+        else:
+            low = middle + 1
+    return low
 
 
 def _collapse_end(rng: Any) -> None:
