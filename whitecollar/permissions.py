@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .errors import PolicyError
+from .mail_ops import MAIL_COM_OPERATIONS
 from .slides_ops import SLIDES_COM_OPERATIONS, SLIDES_COM_READ_OPERATIONS
 from .word_ops import WORD_COM_OPERATIONS, WORD_COM_READ_OPERATIONS
 
@@ -50,7 +51,7 @@ CAPABILITIES: dict[str, Capability] = {
     "mail.body.read": Capability("mail.body.read", "mail", "Read the body of a specific message", "sensitive", "message"),
     "mail.attachments.read": Capability("mail.attachments.read", "mail", "Read message attachments", "highly-sensitive", "message"),
     "mail.write.send": Capability("mail.write.send", "mail", "Send or forward mail", "destructive", "mailbox"),
-    "mail.write.organize": Capability("mail.write.organize", "mail", "Move or delete mail", "destructive", "message"),
+    "mail.write.organize": Capability("mail.write.organize", "mail", "Mark, move, or delete mail", "destructive", "message"),
 }
 
 
@@ -75,6 +76,8 @@ def _operation_capability(app: str, operation: str) -> str:
             return "slides.capture"
         if operation in SLIDES_COM_OPERATIONS:
             return "slides.write.content"
+    if app == "mail" and operation in MAIL_COM_OPERATIONS:
+        return "mail.write.organize"
     raise PolicyError(
         "operation has no registered capability",
         details={"app": app, "operation": operation},
@@ -109,6 +112,7 @@ _REVIEW = _READ_ONLY | frozenset({
 _EDIT = _REVIEW | frozenset({
     "word.write.in_place",
     "slides.write.in_place",
+    "mail.write.organize",
 })
 
 PROFILE_CAPABILITIES = {

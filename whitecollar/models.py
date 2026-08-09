@@ -5,12 +5,13 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .errors import ValidationError
+from .mail_ops import MAIL_COM_OPERATIONS, MAIL_COM_REQUIRED_ARGS
 from .slides_ops import SLIDES_COM_OPERATIONS, SLIDES_COM_REQUIRED_ARGS
 from .word_ops import WORD_COM_OPERATIONS, WORD_COM_REQUIRED_ARGS
 
 PLAN_SCHEMA = "white-collar.plan/v1"
 RESULT_SCHEMA = "white-collar.result/v1"
-APPS = {"word", "slides"}
+APPS = {"word", "slides", "mail"}
 POLICY_NAMES = {"read-only", "review", "edit"}
 
 
@@ -52,13 +53,28 @@ class Target:
 
 
 @dataclass(frozen=True)
+class MailTarget:
+    id: str
+
+    @classmethod
+    def from_dict(cls, raw: Any) -> "MailTarget":
+        if not isinstance(raw, dict):
+            raise ValidationError("mail target must be an object")
+        _expect_keys(raw, required={"id"}, optional=set(), context="target")
+        value = raw["id"]
+        if not isinstance(value, str) or not value.strip():
+            raise ValidationError("target.id must be a non-empty string")
+        return cls(value)
+
+
+@dataclass(frozen=True)
 class WriteIntent:
     mode: Literal["none", "save-as", "in-place"]
     path: str | None = None
     snapshot: str | None = None
 
     @classmethod
-    def from_dict(cls, raw: Any, target: Target) -> "WriteIntent":
+    def from_dict(cls, raw: Any, target: Target | MailTarget) -> "WriteIntent":
         if not isinstance(raw, dict):
             raise ValidationError("write must be an object")
         _expect_keys(raw, required={"mode"}, optional={"path", "snapshot"}, context="write")
@@ -67,6 +83,8 @@ class WriteIntent:
             if raw.get("path") is not None or raw.get("snapshot") is not None:
                 raise ValidationError("write.none does not accept write.path or write.snapshot")
             return cls("none")
+        if isinstance(target, MailTarget):
+            raise ValidationError("mail plans must use write.mode 'none'")
         if mode == "save-as":
             path = _absolute_path(raw.get("path"), "write.path")
             if Path(path) == Path(target.path):
@@ -87,8 +105,8 @@ class WriteIntent:
 @dataclass(frozen=True)
 class Plan:
     schema: str
-    app: Literal["word", "slides"]
-    target: Target
+    app: Literal["word", "slides", "mail"]
+    target: Target | MailTarget
     policy: Literal["read-only", "review", "edit"]
     operations: tuple[dict[str, Any], ...]
     write: WriteIntent
@@ -106,10 +124,10 @@ class Plan:
         if raw["schema"] != PLAN_SCHEMA:
             raise ValidationError(f"schema must be {PLAN_SCHEMA!r}")
         if raw["app"] not in APPS:
-            raise ValidationError("app must be 'word' or 'slides'")
+            raise ValidationError("app must be 'word', 'slides', or 'mail'")
         if raw["policy"] not in POLICY_NAMES:
             raise ValidationError("policy must be 'read-only', 'review', or 'edit'")
-        target = Target.from_dict(raw["target"])
+        target = MailTarget.from_dict(raw["target"]) if raw["app"] == "mail" else Target.from_dict(raw["target"])
         write = WriteIntent.from_dict(raw["write"], target)
         operations = raw["operations"]
         if not isinstance(operations, list) or not operations:
@@ -131,6 +149,8 @@ def _validate_operation(app: str, raw: Any, index: int) -> dict[str, Any]:
         raise ValidationError(f"{context}.op must be a string")
     operation = raw["op"]
     if operation == "replace_text":
+        if app not in {"word", "slides"}:
+            raise ValidationError(f"{context}.op is unsupported for {app}")
         _expect_keys(raw, required={"op", "find", "replace"}, optional={"occurrence"}, context=context)
         if not isinstance(raw["find"], str) or not raw["find"]:
             raise ValidationError(f"{context}.find must be a non-empty string")
@@ -171,6 +191,15 @@ def _validate_operation(app: str, raw: Any, index: int) -> dict[str, Any]:
         if not isinstance(args, dict):
             raise ValidationError(f"{context}.args must be an object")
         missing = SLIDES_COM_REQUIRED_ARGS.get(operation, set()) - set(args)
+        if missing:
+            raise ValidationError(f"{context}.args is missing required field(s): {', '.join(sorted(missing))}")
+        return {"op": operation, "args": args}
+    if app == "mail" and operation in MAIL_COM_OPERATIONS:
+        _expect_keys(raw, required={"op"}, optional={"args"}, context=context)
+        args = raw.get("args", {})
+        if not isinstance(args, dict):
+            raise ValidationError(f"{context}.args must be an object")
+        missing = MAIL_COM_REQUIRED_ARGS.get(operation, set()) - set(args)
         if missing:
             raise ValidationError(f"{context}.args is missing required field(s): {', '.join(sorted(missing))}")
         return {"op": operation, "args": args}

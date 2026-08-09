@@ -30,8 +30,9 @@ PowerPoint has an opt-in real COM backend with a finite semantic operation
 catalog. It requires Windows, PowerPoint, and the optional `office` dependencies;
 the default local runtime remains Office-free and returns a structured
 `backend_unavailable` result for slides. Outlook is still a narrow, mockable
-adapter with an opt-in Outlook Classic COM backend; it has no write
-capabilities, and message-body reads require an explicit sensitive-read policy.
+adapter with an opt-in Outlook Classic COM backend; bounded mailbox writes are
+available only under an explicit human grant, and message-body reads require
+an explicit sensitive-read policy.
 
 ## Setup
 
@@ -78,6 +79,8 @@ white-collar mail search --backend com --folder Inbox --query "from:ada@example.
 white-collar mail read --id MESSAGE_ID
 white-collar mail read --backend com --id MESSAGE_ID
 white-collar mail read --id MESSAGE_ID --include-body --policy review
+white-collar mail apply --backend com --plan C:\work\mark-read.plan.json --dry-run
+white-collar mail apply --backend com --plan C:\work\mark-read.plan.json
 
 white-collar permissions show
 white-collar permissions show --policy review
@@ -88,6 +91,7 @@ white-collar permissions check --capability mail.body.read --policy review --bac
 white-collar permissions grant --app word --backend local --policy review --target C:\work\brief.docx --target C:\work\brief-reviewed.docx
 white-collar permissions grant --app mail --backend com --policy review --capability mail.metadata.read --target mailbox
 white-collar permissions grant --app mail --backend com --policy review --capability mail.body.read --target MESSAGE_ID
+white-collar permissions grant --app mail --backend com --policy edit --capability mail.write.organize --target MESSAGE_ID
 white-collar permissions revoke --app mail --backend com --policy review --capability mail.body.read --target MESSAGE_ID
 ```
 
@@ -95,12 +99,14 @@ Mail commands and inspect commands default to `read-only`. Mail search and a
 message metadata read use `mail.metadata.read`; `mail read --include-body`
 requires an explicit `review` or `edit` policy and the `mail.body.read`
 capability, plus a matching human-owner grant for that policy. No mail write capability is
-granted by any v0.1 profile.
+granted by the default authority. Mail writes are `edit`-only, use a message-ID
+target, and require an exact human-owner grant for `mail.write.organize`.
 
 ## Plans
 
 Mutation plans use `white-collar.plan/v1`, name one target and policy, and contain
-only app-approved operations. The checked-in
+only app-approved operations. Office file plans use a path target; mail plans
+use a message-ID target. The checked-in
 [plan schema](schemas/plan-v1.schema.json) is the wire contract.
 
 ```json

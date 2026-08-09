@@ -1,8 +1,9 @@
-"""Narrow, read-only Outlook Classic COM adapter.
+"""Narrow Outlook Classic COM adapter.
 
-Only message metadata and a specifically requested message body are exposed.
-The adapter does not send, move, delete, mark, or otherwise mutate mail, and
-it never evaluates a search against message bodies.
+Message metadata and explicitly requested bodies are exposed for reads. The
+write surface is a finite semantic catalog: mark read/unread, move to a
+standard folder, and delete to Outlook's Deleted Items behavior. It never
+dispatches arbitrary COM methods or sends mail.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import re
 from typing import Any, Callable
 
 from ..errors import BackendUnavailableError, ValidationError
+from ..mail_ops import MAIL_COM_OPERATIONS
 
 
 _DEFAULT_FOLDER_IDS = {
@@ -25,7 +27,7 @@ _TOKEN_PATTERN = re.compile(r'"([^"]+)"|(\S+)')
 
 
 class OutlookComAdapter:
-    """Read-only adapter for the current user's Outlook Classic profile."""
+    """Semantic adapter for the current user's Outlook Classic profile."""
 
     def __init__(self, *, app_factory: Callable[[], Any] | None = None, default_folder: str = "Inbox") -> None:
         self._app_factory = app_factory or _default_outlook_app
@@ -51,6 +53,56 @@ class OutlookComAdapter:
         if not _is_mail_item(item):
             raise ValidationError("Outlook item is not a mail message", details={"message_id": message_id})
         return _message_metadata(item, include_body=include_body)
+
+    def apply(self, plan: Any, *, dry_run: bool) -> dict[str, Any]:
+        message_id = getattr(getattr(plan, "target", None), "id", None)
+        if not isinstance(message_id, str) or not message_id.strip():
+            raise ValidationError("mail plans require a non-empty target.id")
+        app = self._get_app()
+        namespace = _namespace(app)
+        item = _get_item_from_id(namespace, message_id)
+        if not _is_mail_item(item):
+            raise ValidationError("Outlook item is not a mail message", details={"message_id": message_id})
+        changes: list[dict[str, Any]] = []
+        for operation in getattr(plan, "operations", ()):
+            name = operation["op"]
+            if name not in MAIL_COM_OPERATIONS:
+                raise ValidationError("unsupported Outlook mail operation", details={"operation": name})
+            if name in {"mail_live_mark_read", "mail_live_mark_unread"}:
+                before = bool(_safe_value(item, "UnRead", False))
+                after = name == "mail_live_mark_unread"
+                if not dry_run:
+                    item.UnRead = after
+                    save = getattr(item, "Save", None)
+                    if callable(save):
+                        save()
+                changes.append({"op": name, "id": message_id, "unread_before": before, "unread_after": after})
+                continue
+            if name == "mail_live_move":
+                folder = operation.get("args", {}).get("folder")
+                destination = _default_folder(namespace, folder)
+                if not dry_run:
+                    move = getattr(item, "Move", None)
+                    if not callable(move):
+                        raise ValidationError("Outlook message does not support Move", details={"message_id": message_id})
+                    moved = move(destination)
+                    message_id = str(_safe_value(moved, "EntryID", message_id))
+                changes.append({"op": name, "id": message_id, "folder": folder})
+                continue
+            if name == "mail_live_delete":
+                parent = _safe_value(item, "Parent", None)
+                if str(_safe_value(parent, "Name", "")).strip().lower() == "deleted items":
+                    raise ValidationError(
+                        "refusing to delete a message already in Deleted Items",
+                        details={"message_id": message_id},
+                    )
+                if not dry_run:
+                    delete = getattr(item, "Delete", None)
+                    if not callable(delete):
+                        raise ValidationError("Outlook message does not support Delete", details={"message_id": message_id})
+                    delete()
+                changes.append({"op": name, "id": message_id, "deleted": not dry_run})
+        return {"changes": changes, "written": not dry_run}
 
     def _get_app(self) -> Any:
         try:

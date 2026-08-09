@@ -7,6 +7,7 @@ import pytest
 
 from whitecollar.adapters.outlook import OutlookComAdapter
 from whitecollar.errors import ValidationError
+from whitecollar.models import Plan
 
 
 class FakeMessage:
@@ -26,27 +27,45 @@ class FakeMessage:
         self.Attachments = SimpleNamespace(Count=attachments)
         self._body = body
         self.body_reads = 0
+        self.save_calls = 0
+        self.deleted = False
+        self.Parent = None
 
     @property
     def Body(self):
         self.body_reads += 1
         return self._body
 
+    def Save(self):
+        self.save_calls += 1
+
+    def Move(self, folder):
+        self.Parent = folder
+        return self
+
+    def Delete(self):
+        self.deleted = True
+
 
 class FakeFolder:
-    def __init__(self, *items):
-        self.Name = "Inbox"
+    def __init__(self, *items, name="Inbox"):
+        self.Name = name
         self.Items = list(items)
+        for item in self.Items:
+            item.Parent = self
 
 
 class FakeNamespace:
     def __init__(self, folder, items):
         self.folder = folder
         self.items = {item.EntryID: item for item in items}
+        self.folders = {
+            5: FakeFolder(name="Sent Items"),
+            6: folder,
+        }
 
     def GetDefaultFolder(self, folder_id):
-        assert folder_id == 6
-        return self.folder
+        return self.folders[folder_id]
 
     def GetItemFromID(self, message_id):
         if message_id not in self.items:
@@ -69,6 +88,19 @@ def adapter_and_messages():
     folder = FakeFolder(first, second)
     namespace = FakeNamespace(folder, [first, second])
     return OutlookComAdapter(app_factory=lambda: FakeOutlook(namespace)), first, second
+
+
+def mail_plan(operation: str, *, args: dict | None = None, policy: str = "edit") -> Plan:
+    return Plan.from_dict(
+        {
+            "schema": "white-collar.plan/v1",
+            "app": "mail",
+            "target": {"id": "m-1"},
+            "policy": policy,
+            "operations": [{"op": operation, "args": args or {}}],
+            "write": {"mode": "none"},
+        }
+    )
 
 
 def test_search_is_metadata_only_and_supports_narrow_query_fields():
@@ -98,3 +130,25 @@ def test_read_missing_message_and_unknown_folder_are_validation_errors():
         adapter.read("missing")
     with pytest.raises(ValidationError, match="unsupported Outlook folder"):
         adapter.search("roadmap", limit=10, folder="Archive")
+
+
+def test_write_operations_are_semantic_and_dry_run_is_non_mutating():
+    adapter, first, _ = adapter_and_messages()
+    value = adapter.apply(mail_plan("mail_live_mark_read"), dry_run=True)
+    assert value["written"] is False
+    assert value["changes"][0]["unread_after"] is False
+    assert first.UnRead is True
+    assert first.save_calls == 0
+
+
+def test_write_operations_mark_move_and_delete_real_fake_items():
+    adapter, first, _ = adapter_and_messages()
+    adapter.apply(mail_plan("mail_live_mark_read"), dry_run=False)
+    assert first.UnRead is False
+    assert first.save_calls == 1
+    adapter.apply(mail_plan("mail_live_mark_unread"), dry_run=False)
+    assert first.UnRead is True
+    adapter.apply(mail_plan("mail_live_move", args={"folder": "Sent Items"}), dry_run=False)
+    assert first.Parent.Name == "Sent Items"
+    adapter.apply(mail_plan("mail_live_delete"), dry_run=False)
+    assert first.deleted is True

@@ -82,6 +82,26 @@ def test_powerpoint_com_mutation_requires_explicit_write_policy():
         authorize_plan(Plan.from_dict(raw), dry_run=False)
 
 
+def test_mail_write_plan_is_edit_only_and_has_no_file_write_intent():
+    raw = {
+        "schema": "white-collar.plan/v1",
+        "app": "mail",
+        "target": {"id": "message-1"},
+        "policy": "edit",
+        "operations": [{"op": "mail_live_move", "args": {"folder": "Sent Items"}}],
+        "write": {"mode": "none"},
+    }
+    plan = Plan.from_dict(raw)
+    authorize_plan(plan, dry_run=True)
+    raw["policy"] = "review"
+    with pytest.raises(PolicyError, match="capability"):
+        authorize_plan(Plan.from_dict(raw), dry_run=False)
+    raw["policy"] = "edit"
+    raw["write"] = {"mode": "save-as", "path": "C:/not-a-mail-file.pst"}
+    with pytest.raises(ValidationError, match="mail plans"):
+        Plan.from_dict(raw)
+
+
 def test_schema_documents_are_valid_json():
     for path in Path("schemas").glob("*.schema.json"):
         assert json.loads(path.read_text(encoding="utf-8"))["$schema"].endswith("2020-12/schema")

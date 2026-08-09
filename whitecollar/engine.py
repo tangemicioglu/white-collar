@@ -77,7 +77,9 @@ def apply_plan(
     authorize_plan(plan, dry_run=dry_run, authority=authority, backend=backend)
     if plan.app == "word":
         return adapters.word.apply(plan, dry_run=dry_run)
-    return adapters.slides.apply(plan, dry_run=dry_run)
+    if plan.app == "slides":
+        return adapters.slides.apply(plan, dry_run=dry_run)
+    return adapters.mail.apply(plan, dry_run=dry_run)
 
 
 def search_mail(

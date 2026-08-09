@@ -27,6 +27,8 @@ def test_every_registered_office_operation_has_a_capability():
 def test_profiles_are_monotonic_for_office_capabilities():
     assert PROFILE_CAPABILITIES["read-only"] < PROFILE_CAPABILITIES["review"]
     assert PROFILE_CAPABILITIES["review"] < PROFILE_CAPABILITIES["edit"]
+    assert "mail.write.organize" not in PROFILE_CAPABILITIES["review"]
+    assert "mail.write.organize" in PROFILE_CAPABILITIES["edit"]
 
 
 def test_read_only_allows_targeted_word_reads(tmp_path: Path):

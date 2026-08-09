@@ -7,15 +7,25 @@
   "required": ["schema", "app", "target", "policy", "operations", "write"],
   "properties": {
     "schema": {"const": "white-collar.plan/v1"},
-    "app": {"enum": ["word", "slides"]},
+    "app": {"enum": ["word", "slides", "mail"]},
     "target": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["path"],
-      "properties": {
-        "path": {"type": "string", "minLength": 1},
-        "expected_sha256": {"type": "string", "pattern": "^[A-Fa-f0-9]{64}$"}
-      }
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path"],
+          "properties": {
+            "path": {"type": "string", "minLength": 1},
+            "expected_sha256": {"type": "string", "pattern": "^[A-Fa-f0-9]{64}$"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id"],
+          "properties": {"id": {"type": "string", "minLength": 1}}
+        }
+      ]
     },
     "policy": {"enum": ["read-only", "review", "edit"]},
     "operations": {
@@ -49,6 +59,15 @@
             "required": ["op"],
             "properties": {
               "op": {"type": "string", "pattern": "^slides_(live|screen)_"},
+              "args": {"type": "object"}
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["op"],
+            "properties": {
+              "op": {"enum": ["mail_live_mark_read", "mail_live_mark_unread", "mail_live_move", "mail_live_delete"]},
               "args": {"type": "object"}
             }
           }

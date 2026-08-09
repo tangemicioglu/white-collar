@@ -6,7 +6,7 @@ import sys
 
 from conftest import write_plan
 from whitecollar.adapters.word import OoxmlWordAdapter
-from whitecollar.authority import Authority, MemoryCredentialStore
+from whitecollar.authority import Authority, MemoryCredentialStore, make_grant, save_grant
 from whitecollar.cli import main
 from whitecollar.engine import RuntimeAdapters
 
@@ -36,6 +36,12 @@ class FakeMail:
         if include_body:
             value["body"] = "Ship it"
         return value
+
+    def apply(self, plan, *, dry_run):
+        return {
+            "changes": [{"op": plan.operations[0]["op"], "id": plan.target.id}],
+            "written": not dry_run,
+        }
 
 
 def adapters() -> RuntimeAdapters:
@@ -159,6 +165,57 @@ def test_mail_body_requires_explicit_sensitive_policy(capsys):
         adapters=adapters(),
     ) == 0
     assert output(capsys)["data"]["body"] == "Ship it"
+
+
+def test_mail_write_plan_requires_edit_and_owner_grant(tmp_path, capsys):
+    plan_path = tmp_path / "mail.plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "schema": "white-collar.plan/v1",
+                "app": "mail",
+                "target": {"id": "m-1"},
+                "policy": "edit",
+                "operations": [{"op": "mail_live_mark_read"}],
+                "write": {"mode": "none"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert main(
+        ["mail", "apply", "--plan", str(plan_path), "--backend", "com", "--dry-run"],
+        adapters=adapters(),
+        authority=Authority.for_testing(),
+    ) == 0
+    assert output(capsys)["changes"][0]["op"] == "mail_live_mark_read"
+
+    assert main(
+        ["mail", "apply", "--plan", str(plan_path), "--backend", "com", "--dry-run"],
+        adapters=adapters(),
+        authority=Authority.default(),
+    ) == 2
+    denied = output(capsys)
+    assert denied["error"]["details"]["capabilities"] == ["mail.write.organize"]
+    assert denied["error"]["details"]["human_action_required"] is True
+
+    store = MemoryCredentialStore()
+    granted = save_grant(
+        Authority.default(),
+        make_grant(
+            app="mail",
+            backend="com",
+            policy="edit",
+            capabilities=["mail.write.organize"],
+            targets=["m-1"],
+        ),
+        store,
+    )
+    assert main(
+        ["mail", "apply", "--plan", str(plan_path), "--backend", "com", "--dry-run"],
+        adapters=adapters(),
+        authority=granted,
+    ) == 0
+    assert output(capsys)["changes"][0]["id"] == "m-1"
 
 
 def test_agent_permission_change_requires_human_terminal(tmp_path, capsys):

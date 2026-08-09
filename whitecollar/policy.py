@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from .authority import Authority
 from .errors import PolicyError
+from .mail_ops import MAIL_COM_MUTATING_OPERATIONS
 from .models import POLICY_NAMES, Plan
 from .permissions import (
     PROFILE_CAPABILITIES,
@@ -49,6 +50,23 @@ def authorize_plan(
 ) -> PolicyProfile:
     profile = PROFILES[plan.policy]
     operations = {operation["op"] for operation in plan.operations}
+    if plan.app == "mail":
+        if plan.write.mode != "none":
+            raise PolicyError("mail mutation plans must use write.mode 'none'")
+        if not operations or not operations.issubset(MAIL_COM_MUTATING_OPERATIONS):
+            raise PolicyError("mail plan contains an unsupported operation")
+        target = plan.target.id
+        required_capabilities = tuple(
+            capability_for_operation(plan.app, operation)
+            for operation in operations
+        )
+        if dry_run and not profile.allow_dry_run:
+            raise PolicyError(f"policy {plan.policy!r} does not allow mutation plans, including dry-runs")
+        for capability in required_capabilities:
+            require_capability(plan.policy, capability, target=target)
+        if authority is not None:
+            authority.require_access(plan.app, backend, plan.policy, target, required_capabilities)
+        return profile
     if plan.app == "word":
         mutating_operations = WORD_COM_MUTATING_OPERATIONS
         read_operation = is_word_read_operation

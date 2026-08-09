@@ -59,6 +59,10 @@ def build_parser() -> argparse.ArgumentParser:
     read.add_argument("--policy", choices=("read-only", "review", "edit"), default="read-only")
     read.add_argument("--include-body", action="store_true", help="request sensitive message body access")
     read.add_argument("--backend", choices=("local", "com"), default="local")
+    mail_apply = mail_commands.add_parser("apply")
+    mail_apply.add_argument("--plan", required=True)
+    mail_apply.add_argument("--dry-run", action="store_true")
+    mail_apply.add_argument("--backend", choices=("local", "com"), default="local")
 
     permissions = apps.add_parser("permissions", help="inspect and check local capability grants")
     permission_commands = permissions.add_subparsers(dest="action", required=True, parser_class=JsonArgumentParser)
@@ -215,6 +219,25 @@ def _run(
             policy=plan.policy,
             dry_run=args.dry_run,
             target=plan.target.path,
+            data=data,
+            changes=changes,
+        )
+    if args.app == "mail" and args.action == "apply":
+        plan = _load_plan(args.plan)
+        args.policy = plan.policy
+        if plan.app != "mail":
+            raise ValidationError(
+                "plan app does not match command",
+                details={"plan_app": plan.app, "command_app": args.app},
+            )
+        data = apply_plan(plan, dry_run=args.dry_run, adapters=adapters, authority=authority, backend=args.backend)
+        changes = data.pop("changes", [])
+        return result(
+            ok=True,
+            command=command,
+            policy=plan.policy,
+            dry_run=args.dry_run,
+            target=plan.target.id,
             data=data,
             changes=changes,
         )
