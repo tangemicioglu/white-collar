@@ -193,8 +193,9 @@ def result(
         "ok": ok,
         "command": command,
         "policy": policy,
-        "dry_run": dry_run,
     }
+    if dry_run:
+        envelope["dry_run"] = True
     if target is not None:
         envelope["target"] = target
     if data is not None:

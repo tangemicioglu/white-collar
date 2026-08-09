@@ -4,7 +4,7 @@
   "title": "white-collar result v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "ok", "command", "policy", "dry_run"],
+  "required": ["schema", "ok", "command", "policy"],
   "properties": {
     "schema": {"const": "white-collar.result/v1"},
     "ok": {"type": "boolean"},

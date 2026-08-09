@@ -54,7 +54,9 @@ python -m pip install -e ".[office]"
 ## Commands
 
 All successful operations and expected failures emit one compact JSON object to
-standard output using `white-collar.result/v1`.
+standard output using `white-collar.result/v1`. The envelope includes
+`dry_run: true` only when a mutation was explicitly simulated; ordinary
+responses omit that false-valued field to keep agent context small.
 
 ```powershell
 white-collar word inspect C:\work\brief.docx

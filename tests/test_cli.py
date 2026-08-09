@@ -49,6 +49,7 @@ def test_word_inspect_smoke(make_docx, tmp_path, capsys):
     assert value["schema"] == "white-collar.result/v1"
     assert value["command"] == "word.inspect"
     assert value["policy"] == "read-only"
+    assert "dry_run" not in value
 
 
 def test_word_apply_dry_run_smoke(make_docx, tmp_path, capsys):
