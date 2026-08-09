@@ -196,13 +196,13 @@ class Grant:
     capabilities: tuple[str, ...]
     targets: tuple[str, ...]
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, redact_targets: bool = False) -> dict[str, Any]:
         return {
             "app": self.app,
             "backend": self.backend,
             "policy": self.policy,
             "capabilities": list(self.capabilities),
-            "targets": list(self.targets),
+            "targets": ["<redacted>"] if redact_targets else list(self.targets),
         }
 
 
@@ -278,14 +278,14 @@ class Authority:
         parsed = tuple(_parse_grant(item, index) for index, item in enumerate(grants))
         return cls(parsed, source)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, redact_targets: bool = False) -> dict[str, Any]:
         """Return safe status data; no credential blob or storage path is exposed."""
 
         return {
             "schema": AUTHORITY_SCHEMA,
             "source": self.source,
             "built_in": [grant.to_dict() for grant in _builtin_grants()],
-            "owner_grants": [grant.to_dict() for grant in self.owner_grants],
+            "owner_grants": [grant.to_dict(redact_targets=redact_targets) for grant in self.owner_grants],
             "human_action_required_for_changes": True,
         }
 

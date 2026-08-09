@@ -114,6 +114,16 @@ def test_mailbox_scope_grant_can_cover_message_targets():
     authority.require_access("mail", "com", "send", "draft-1", ("mail.write.send",))
 
 
+def test_authority_status_can_redact_owner_targets():
+    authority = Authority(
+        (make_grant(app="mail", backend="com", policy="edit", targets=["secret-message-id"]),),
+        source="test",
+    )
+    status = authority.to_dict(redact_targets=True)
+    assert status["owner_grants"][0]["targets"] == ["<redacted>"]
+    assert "secret-message-id" not in json.dumps(status)
+
+
 def test_setup_replaces_only_configured_application_grants():
     store = MemoryCredentialStore()
     authority = save_grant(

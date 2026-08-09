@@ -107,6 +107,7 @@ def build_parser() -> argparse.ArgumentParser:
     permission_commands = permissions.add_subparsers(dest="action", required=True, parser_class=JsonArgumentParser)
     show = permission_commands.add_parser("show")
     show.add_argument("--policy", choices=PROFILE_NAMES, default="read-only")
+    show.add_argument("--redacted", action="store_true", help="hide exact owner-grant targets in the status output")
     check = permission_commands.add_parser("check")
     check.add_argument("--capability", required=True)
     check.add_argument("--target")
@@ -418,7 +419,7 @@ def _run(
         )
     if args.app == "permissions" and args.action == "show":
         data = catalog(policy=args.policy, authority=authority)
-        data["authority"] = authority.to_dict()
+        data["authority"] = authority.to_dict(redact_targets=args.redacted)
         return result(ok=True, command=command, policy=args.policy, dry_run=False, data=data)
     if args.app == "permissions" and args.action == "check":
         decision = require_capability(args.policy, args.capability, target=args.target)

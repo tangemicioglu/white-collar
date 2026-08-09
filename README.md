@@ -92,6 +92,7 @@ white-collar setup --app mail --policy edit
 white-collar doctor
 
 white-collar permissions show
+white-collar permissions show --redacted
 white-collar permissions show --policy review
 white-collar permissions check --capability word.write.save_as --policy review --backend local --target C:\work\brief.docx
 white-collar permissions check --capability mail.body.read --policy review --backend com --target MESSAGE_ID

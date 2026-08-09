@@ -453,6 +453,23 @@ def test_permissions_commands_are_machine_readable(tmp_path, capsys):
     assert denied["error"]["details"]["capability"] == "mail.body.read"
 
 
+def test_permissions_show_can_redact_exact_owner_targets(capsys):
+    authority = save_grant(
+        Authority.default(),
+        make_grant(app="mail", backend="com", policy="review", targets=["secret-message-id"]),
+        MemoryCredentialStore(),
+    )
+    assert main(
+        ["permissions", "show", "--redacted"],
+        adapters=adapters(),
+        authority=authority,
+    ) == 0
+    raw = capsys.readouterr().out
+    assert "secret-message-id" not in raw
+    value = json.loads(raw)
+    assert value["data"]["authority"]["owner_grants"][0]["targets"] == ["<redacted>"]
+
+
 def test_cli_validation_errors_are_json(capsys):
     assert invoke(["mail", "search", "--query", "x", "--limit", "101"], adapters=adapters()) == 2
     value = output(capsys)
