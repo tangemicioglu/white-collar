@@ -6,13 +6,13 @@ from ..errors import BackendUnavailableError
 
 
 class MailAdapter(Protocol):
-    def search(self, query: str, *, limit: int) -> list[dict[str, Any]]: ...
+    def search(self, query: str, *, limit: int, folder: str = "Inbox") -> list[dict[str, Any]]: ...
 
     def read(self, message_id: str, *, include_body: bool = False) -> dict[str, Any]: ...
 
 
 class UnavailableMailAdapter:
-    def search(self, query: str, *, limit: int) -> list[dict[str, Any]]:
+    def search(self, query: str, *, limit: int, folder: str = "Inbox") -> list[dict[str, Any]]:
         raise BackendUnavailableError("mail")
 
     def read(self, message_id: str, *, include_body: bool = False) -> dict[str, Any]:

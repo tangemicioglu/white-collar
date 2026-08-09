@@ -41,11 +41,14 @@ def build_parser() -> argparse.ArgumentParser:
     search = mail_commands.add_parser("search")
     search.add_argument("--query", required=True)
     search.add_argument("--limit", type=int, default=20)
+    search.add_argument("--folder", default="Inbox", help="Inbox, Sent Items, Drafts, or another supported default folder")
     search.add_argument("--policy", choices=("read-only", "review", "edit"), default="read-only")
+    search.add_argument("--backend", choices=("local", "com"), default="local")
     read = mail_commands.add_parser("read")
     read.add_argument("--id", required=True, dest="message_id")
     read.add_argument("--policy", choices=("read-only", "review", "edit"), default="read-only")
     read.add_argument("--include-body", action="store_true", help="request sensitive message body access")
+    read.add_argument("--backend", choices=("local", "com"), default="local")
 
     permissions = apps.add_parser("permissions", help="inspect and check local capability grants")
     permission_commands = permissions.add_subparsers(dest="action", required=True, parser_class=JsonArgumentParser)
@@ -106,7 +109,7 @@ def _run(args: argparse.Namespace, adapters: RuntimeAdapters) -> dict[str, Any]:
             changes=changes,
         )
     if args.app == "mail" and args.action == "search":
-        data = search_mail(args.query, limit=args.limit, policy=args.policy, adapters=adapters)
+        data = search_mail(args.query, limit=args.limit, policy=args.policy, folder=args.folder, adapters=adapters)
         return result(ok=True, command=command, policy=args.policy, dry_run=False, data=data)
     if args.app == "mail" and args.action == "read":
         data = read_mail(
@@ -129,6 +132,7 @@ def main(argv: Sequence[str] | None = None, *, adapters: RuntimeAdapters | None 
             or RuntimeAdapters.local(
                 word_backend=getattr(parsed, "backend", "local") if getattr(parsed, "app", None) == "word" else "local",
                 slides_backend=getattr(parsed, "backend", "local") if getattr(parsed, "app", None) == "slides" else "local",
+                mail_backend=getattr(parsed, "backend", "local") if getattr(parsed, "app", None) == "mail" else "local",
             ),
         )
         exit_code = 0

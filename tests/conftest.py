@@ -23,6 +23,12 @@ def pytest_addoption(parser):
         help="run integration tests against an installed Microsoft PowerPoint instance",
     )
     parser.addoption(
+        "--run-real-outlook",
+        action="store_true",
+        default=False,
+        help="run integration tests against an installed Outlook Classic instance",
+    )
+    parser.addoption(
         "--run-real-office",
         action="store_true",
         default=False,
@@ -33,11 +39,14 @@ def pytest_addoption(parser):
 def pytest_collection_modifyitems(config, items):
     run_word = config.getoption("--run-real-word") or config.getoption("--run-real-office")
     run_powerpoint = config.getoption("--run-real-powerpoint") or config.getoption("--run-real-office")
+    run_outlook = config.getoption("--run-real-outlook") or config.getoption("--run-real-office")
     for item in items:
         if "real_word" in item.keywords and not run_word:
             item.add_marker(pytest.mark.skip(reason="pass --run-real-word to exercise Microsoft Word COM"))
         if "real_powerpoint" in item.keywords and not run_powerpoint:
             item.add_marker(pytest.mark.skip(reason="pass --run-real-powerpoint to exercise Microsoft PowerPoint COM"))
+        if "real_outlook" in item.keywords and not run_outlook:
+            item.add_marker(pytest.mark.skip(reason="pass --run-real-outlook to exercise Outlook Classic COM"))
 
 
 def pytest_sessionfinish(session, exitstatus):

@@ -30,8 +30,8 @@ PowerPoint has an opt-in real COM backend with a finite semantic operation
 catalog. It requires Windows, PowerPoint, and the optional `office` dependencies;
 the default local runtime remains Office-free and returns a structured
 `backend_unavailable` result for slides. Outlook is still a narrow, mockable
-adapter stub; it has no write capabilities, and message-body reads require an
-explicit sensitive-read policy.
+adapter with an opt-in Outlook Classic COM backend; it has no write
+capabilities, and message-body reads require an explicit sensitive-read policy.
 
 ## Setup
 
@@ -74,7 +74,9 @@ white-collar slides apply --plan C:\work\slides.plan.json --dry-run
 white-collar slides apply --plan C:\work\slides.plan.json --backend com
 
 white-collar mail search --query "from:ada@example.com roadmap" --limit 10
+white-collar mail search --backend com --folder Inbox --query "from:ada@example.com roadmap" --limit 10
 white-collar mail read --id MESSAGE_ID
+white-collar mail read --backend com --id MESSAGE_ID
 white-collar mail read --id MESSAGE_ID --include-body --policy review
 
 white-collar permissions show
@@ -149,6 +151,11 @@ vocabulary. `white-collar permissions show` exposes that versioned vocabulary;
 cannot add grants to themselves. File capabilities require an absolute target,
 and message-body access requires a message target. The default mail profile can
 search metadata but does not expose message bodies or attachments.
+
+Outlook Classic is an opt-in COM backend: install the `office` extra and use
+`--backend com`. Its narrow search/read behavior and supported standard folders
+are documented in [the Outlook COM adapter catalog](docs/outlook-com-operations.md).
+The default backend remains Office-free and returns `backend_unavailable`.
 
 The opt-in COM backends cover the finite Word and PowerPoint semantic operation
 vocabularies documented in [the Word COM operation catalog](docs/word-com-operations.md)

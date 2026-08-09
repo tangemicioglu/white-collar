@@ -27,8 +27,8 @@ class FakeWordRender:
 
 
 class FakeMail:
-    def search(self, query, *, limit):
-        return [{"id": "m-1", "subject": "Roadmap", "query": query}][:limit]
+    def search(self, query, *, limit, folder="Inbox"):
+        return [{"id": "m-1", "subject": "Roadmap", "query": query, "folder": folder}][:limit]
 
     def read(self, message_id, *, include_body=False):
         value = {"id": message_id, "subject": "Roadmap"}
@@ -97,6 +97,14 @@ def test_mail_search_and_read_default_to_read_only(capsys):
     assert searched["data"][0]["id"] == "m-1"
     assert main(["mail", "read", "--id", "m-1"], adapters=adapters()) == 0
     assert "body" not in output(capsys)["data"]
+
+
+def test_mail_backend_and_folder_flags_reach_the_adapter(capsys):
+    assert main(
+        ["mail", "search", "--backend", "com", "--folder", "Sent Items", "--query", "roadmap"],
+        adapters=adapters(),
+    ) == 0
+    assert output(capsys)["data"][0]["folder"] == "Sent Items"
 
 
 def test_mail_body_requires_explicit_sensitive_policy(capsys):

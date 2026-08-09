@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .adapters import MailAdapter, OoxmlWordAdapter, PowerPointComAdapter, SlidesAdapter, UnavailableMailAdapter, UnavailableSlidesAdapter, Win32WordComAdapter, WordAdapter
+from .adapters import MailAdapter, OoxmlWordAdapter, OutlookComAdapter, PowerPointComAdapter, SlidesAdapter, UnavailableMailAdapter, UnavailableSlidesAdapter, Win32WordComAdapter, WordAdapter
 from .errors import ValidationError
 from .models import Plan
 from .permissions import require_capability
@@ -18,10 +18,17 @@ class RuntimeAdapters:
     mail: MailAdapter
 
     @classmethod
-    def local(cls, *, word_backend: str = "local", slides_backend: str = "local") -> "RuntimeAdapters":
+    def local(
+        cls,
+        *,
+        word_backend: str = "local",
+        slides_backend: str = "local",
+        mail_backend: str = "local",
+    ) -> "RuntimeAdapters":
         word = Win32WordComAdapter() if word_backend == "com" else OoxmlWordAdapter()
         slides = PowerPointComAdapter() if slides_backend == "com" else UnavailableSlidesAdapter()
-        return cls(word, slides, UnavailableMailAdapter())
+        mail = OutlookComAdapter() if mail_backend == "com" else UnavailableMailAdapter()
+        return cls(word, slides, mail)
 
 
 def inspect_document(
@@ -57,13 +64,20 @@ def apply_plan(plan: Plan, *, dry_run: bool, adapters: RuntimeAdapters) -> dict[
     return adapters.slides.apply(plan, dry_run=dry_run)
 
 
-def search_mail(query: str, *, limit: int, policy: str, adapters: RuntimeAdapters) -> list[dict[str, Any]]:
+def search_mail(
+    query: str,
+    *,
+    limit: int,
+    policy: str,
+    adapters: RuntimeAdapters,
+    folder: str = "Inbox",
+) -> list[dict[str, Any]]:
     require_capability(policy, "mail.metadata.read")
     if not query.strip():
         raise ValidationError("mail query must not be empty")
     if limit < 1 or limit > 100:
         raise ValidationError("mail limit must be between 1 and 100")
-    return adapters.mail.search(query, limit=limit)
+    return adapters.mail.search(query, limit=limit, folder=folder)
 
 
 def read_mail(
