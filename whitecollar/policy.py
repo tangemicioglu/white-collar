@@ -4,7 +4,8 @@ from dataclasses import dataclass
 
 from .errors import PolicyError
 from .models import POLICY_NAMES, Plan
-from .word_ops import WORD_COM_MUTATING_OPERATIONS, is_read_operation
+from .slides_ops import SLIDES_COM_MUTATING_OPERATIONS, is_read_operation as is_slides_read_operation
+from .word_ops import WORD_COM_MUTATING_OPERATIONS, is_read_operation as is_word_read_operation
 
 
 @dataclass(frozen=True)
@@ -35,10 +36,18 @@ def require_read(policy: str) -> PolicyProfile:
 def authorize_plan(plan: Plan, *, dry_run: bool) -> PolicyProfile:
     profile = PROFILES[plan.policy]
     operations = {operation["op"] for operation in plan.operations}
-    is_mutation = any(operation in WORD_COM_MUTATING_OPERATIONS or operation == "replace_text" for operation in operations)
+    if plan.app == "word":
+        mutating_operations = WORD_COM_MUTATING_OPERATIONS
+        read_operation = is_word_read_operation
+        app_name = "Word"
+    else:
+        mutating_operations = SLIDES_COM_MUTATING_OPERATIONS
+        read_operation = is_slides_read_operation
+        app_name = "PowerPoint"
+    is_mutation = any(operation in mutating_operations or operation == "replace_text" for operation in operations)
     if not is_mutation and plan.write.mode != "none":
-        raise PolicyError("read-only Word operations must use write.mode 'none'")
-    if not is_mutation and not all(is_read_operation(operation) or operation == "replace_text" for operation in operations):
+        raise PolicyError(f"read-only {app_name} operations must use write.mode 'none'")
+    if not is_mutation and not all(read_operation(operation) or operation == "replace_text" for operation in operations):
         raise PolicyError("plan contains an unknown operation capability")
     if not is_mutation:
         if dry_run:
@@ -49,7 +58,7 @@ def authorize_plan(plan: Plan, *, dry_run: bool) -> PolicyProfile:
             raise PolicyError(f"policy {plan.policy!r} does not allow mutation plans, including dry-runs")
         return profile
     if plan.write.mode == "none":
-        raise PolicyError("mutating Word operations require save-as or in-place write intent")
+        raise PolicyError(f"mutating {app_name} operations require save-as or in-place write intent")
     if plan.write.mode == "save-as" and not profile.allow_save_as:
         raise PolicyError(f"policy {plan.policy!r} does not allow save-as writes")
     if plan.write.mode == "in-place" and not profile.allow_in_place:

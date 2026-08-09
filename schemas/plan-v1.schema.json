@@ -42,6 +42,15 @@
               "op": {"type": "string", "pattern": "^word_(live|screen)_"},
               "args": {"type": "object"}
             }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["op"],
+            "properties": {
+              "op": {"type": "string", "pattern": "^slides_(live|screen)_"},
+              "args": {"type": "object"}
+            }
           }
         ]
       }

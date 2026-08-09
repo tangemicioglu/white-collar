@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .errors import ValidationError
+from .slides_ops import SLIDES_COM_OPERATIONS, SLIDES_COM_REQUIRED_ARGS
 from .word_ops import WORD_COM_OPERATIONS, WORD_COM_REQUIRED_ARGS
 
 PLAN_SCHEMA = "white-collar.plan/v1"
@@ -163,6 +164,15 @@ def _validate_operation(app: str, raw: Any, index: int) -> dict[str, Any]:
             raise ValidationError(f"{context}.args must identify a comment target range")
         if operation == "word_live_reply_to_comment" and not ("reply_text" in args or "text" in args):
             raise ValidationError(f"{context}.args requires text or reply_text")
+        return {"op": operation, "args": args}
+    if app == "slides" and operation in SLIDES_COM_OPERATIONS:
+        _expect_keys(raw, required={"op"}, optional={"args"}, context=context)
+        args = raw.get("args", {})
+        if not isinstance(args, dict):
+            raise ValidationError(f"{context}.args must be an object")
+        missing = SLIDES_COM_REQUIRED_ARGS.get(operation, set()) - set(args)
+        if missing:
+            raise ValidationError(f"{context}.args is missing required field(s): {', '.join(sorted(missing))}")
         return {"op": operation, "args": args}
     raise ValidationError(f"{context}.op is unsupported for {app}")
 

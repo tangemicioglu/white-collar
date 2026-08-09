@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import zipfile
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -14,15 +16,43 @@ def pytest_addoption(parser):
         default=False,
         help="run integration tests against an installed Microsoft Word instance",
     )
+    parser.addoption(
+        "--run-real-powerpoint",
+        action="store_true",
+        default=False,
+        help="run integration tests against an installed Microsoft PowerPoint instance",
+    )
+    parser.addoption(
+        "--run-real-office",
+        action="store_true",
+        default=False,
+        help="run integration tests against installed Microsoft Office applications",
+    )
 
 
 def pytest_collection_modifyitems(config, items):
-    if config.getoption("--run-real-word"):
-        return
-    skip = pytest.mark.skip(reason="pass --run-real-word to exercise Microsoft Word COM")
+    run_word = config.getoption("--run-real-word") or config.getoption("--run-real-office")
+    run_powerpoint = config.getoption("--run-real-powerpoint") or config.getoption("--run-real-office")
     for item in items:
-        if "real_word" in item.keywords:
-            item.add_marker(skip)
+        if "real_word" in item.keywords and not run_word:
+            item.add_marker(pytest.mark.skip(reason="pass --run-real-word to exercise Microsoft Word COM"))
+        if "real_powerpoint" in item.keywords and not run_powerpoint:
+            item.add_marker(pytest.mark.skip(reason="pass --run-real-powerpoint to exercise Microsoft PowerPoint COM"))
+
+
+def pytest_sessionfinish(session, exitstatus):
+    process_id = os.environ.pop("WHITE_COLLAR_REAL_POWERPOINT_PID", "")
+    if not process_id.isdigit():
+        return
+    command = (
+        "$p = Get-Process -Id "
+        + process_id
+        + " -ErrorAction SilentlyContinue; "
+        "if ($null -ne $p -and $p.ProcessName -eq 'POWERPNT') { Stop-Process -Id "
+        + process_id
+        + " -Force }"
+    )
+    subprocess.run(["powershell", "-NoProfile", "-Command", command], check=False, capture_output=True)
 
 
 @pytest.fixture

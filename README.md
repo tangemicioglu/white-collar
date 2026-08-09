@@ -26,10 +26,11 @@ Text replacement currently matches within individual OOXML text nodes. Word may
 split visually continuous text into multiple nodes when formatting changes, so a
 phrase crossing such a boundary is reported as unmatched rather than rewritten.
 
-PowerPoint and Outlook have narrow, mockable adapter contracts. Their CLI commands
-and policy behavior are tested with fake adapters; the default local runtime
-returns a structured `backend_unavailable` result until an app-specific backend
-is configured.
+PowerPoint has an opt-in real COM backend with a finite semantic operation
+catalog. It requires Windows, PowerPoint, and the optional `office` dependencies;
+the default local runtime remains Office-free and returns a structured
+`backend_unavailable` result for slides. Outlook is still a narrow, mockable
+adapter stub and remains read-only.
 
 ## Setup
 
@@ -63,7 +64,9 @@ white-collar word inspect C:\work\brief.docx --backend com
 white-collar word apply --plan C:\work\live.plan.json --backend com
 
 white-collar slides inspect C:\work\deck.pptx
+white-collar slides inspect C:\work\deck.pptx --backend com
 white-collar slides apply --plan C:\work\slides.plan.json --dry-run
+white-collar slides apply --plan C:\work\slides.plan.json --backend com
 
 white-collar mail search --query "from:ada@example.com roadmap" --limit 10
 white-collar mail read --id MESSAGE_ID
@@ -128,10 +131,11 @@ called. `review` is intended for agent workflows that produce a new artifact for
 human review. `edit` is the only profile that permits replacing the target, and
 the plan must provide a distinct snapshot path. Mail is read-only in v0.1.
 
-The opt-in COM backend covers the finite Word live-operation vocabulary documented
-in [the Word COM operation catalog](docs/word-com-operations.md). It requires the
-target document to already be open in Word and creates one native Word undo record
-per semantic operation. The default backend remains Office-free.
+The opt-in COM backends cover the finite Word and PowerPoint semantic operation
+vocabularies documented in [the Word COM operation catalog](docs/word-com-operations.md)
+and [the PowerPoint COM operation catalog](docs/powerpoint-com-operations.md).
+They require the target file to already be open in the corresponding Office
+application. The default backends remain Office-free.
 
 `--dry-run` performs real parsing, targeting, hash checks, and match discovery but
 does not create an output or snapshot. A live Word apply fails closed if an
@@ -166,10 +170,11 @@ python -m pytest -q
 python -m compileall -q whitecollar
 ```
 
-On Windows with Microsoft Word installed, run the live COM gate as well:
+On Windows with Microsoft Office installed, run the live COM gates as well:
 
 ```powershell
 python -m pytest -q --run-real-word
+python -m pytest -q --run-real-powerpoint
 ```
 
 That opt-in test starts an isolated Word instance, creates a real `.docx`, and
@@ -191,3 +196,24 @@ python -m pytest -q tests/test_word_com_real.py --run-real-word
 
 The ignored artifact directory contains the screenshots, native Word
 `SaveCopyAs` snapshots, and the source copies used to validate each capture.
+
+For PowerPoint evidence, set a separate artifact directory and run:
+
+```powershell
+$env:WHITE_COLLAR_REAL_POWERPOINT_ARTIFACT_DIR = "$pwd\.real-powerpoint-artifacts"
+python -m pytest -q tests/test_slides_com_real.py --run-real-powerpoint
+```
+
+That opt-in test creates a disposable real deck and invokes every registered
+PowerPoint operation through `Plan` and `PowerPointComAdapter`: inspection,
+text operations, slide lifecycle, formatting, shapes, images, backgrounds,
+duplication, ordering, notes, size, save, and screen capture. It checks each
+operation's postcondition, reopens every snapshot in PowerPoint, and retains
+native PowerPoint-window screenshots plus PowerPoint-exported slide renders.
+The normal review gate does not require Office. The test uses PowerPoint's native
+slide export for render inspection when the optional presentation helper's PDF
+rasterizer is unavailable.
+
+The PowerPoint catalog is intentionally semantic and finite. The CLI does not
+expose arbitrary COM methods or import `ppt-mcp` source; that project may inform
+future behavior, but it is not a public command model or a copied backend.

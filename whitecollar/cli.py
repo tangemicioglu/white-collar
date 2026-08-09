@@ -28,13 +28,11 @@ def build_parser() -> argparse.ArgumentParser:
         inspect = commands.add_parser("inspect")
         inspect.add_argument("target")
         inspect.add_argument("--policy", choices=("read-only", "review", "edit"), default="read-only")
-        if app == "word":
-            inspect.add_argument("--backend", choices=("local", "com"), default="local")
+        inspect.add_argument("--backend", choices=("local", "com"), default="local")
         apply = commands.add_parser("apply")
         apply.add_argument("--plan", required=True)
         apply.add_argument("--dry-run", action="store_true")
-        if app == "word":
-            apply.add_argument("--backend", choices=("local", "com"), default="local")
+        apply.add_argument("--backend", choices=("local", "com"), default="local")
 
     mail = apps.add_parser("mail")
     mail_commands = mail.add_subparsers(dest="action", required=True, parser_class=JsonArgumentParser)
@@ -102,7 +100,14 @@ def main(argv: Sequence[str] | None = None, *, adapters: RuntimeAdapters | None 
     parsed: argparse.Namespace | None = None
     try:
         parsed = build_parser().parse_args(argv)
-        response = _run(parsed, adapters or RuntimeAdapters.local(word_backend=getattr(parsed, "backend", "local")))
+        response = _run(
+            parsed,
+            adapters
+            or RuntimeAdapters.local(
+                word_backend=getattr(parsed, "backend", "local") if getattr(parsed, "app", None) == "word" else "local",
+                slides_backend=getattr(parsed, "backend", "local") if getattr(parsed, "app", None) == "slides" else "local",
+            ),
+        )
         exit_code = 0
     except WhiteCollarError as exc:
         policy = getattr(parsed, "policy", "read-only") if parsed else "read-only"

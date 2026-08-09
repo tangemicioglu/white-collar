@@ -61,6 +61,27 @@ def test_word_com_read_operation_uses_read_only_and_no_write_intent():
     authorize_plan(Plan.from_dict(raw), dry_run=False)
 
 
+def test_powerpoint_com_read_operation_uses_read_only_and_no_write_intent():
+    raw = json.loads(Path("tests/fixtures/word-replace-plan.json").read_text(encoding="utf-8"))
+    raw["app"] = "slides"
+    raw["operations"] = [{"op": "slides_live_get_info", "args": {}}]
+    raw["policy"] = "read-only"
+    raw["write"] = {"mode": "none"}
+    authorize_plan(Plan.from_dict(raw), dry_run=False)
+
+
+def test_powerpoint_com_mutation_requires_explicit_write_policy():
+    raw = json.loads(Path("tests/fixtures/word-replace-plan.json").read_text(encoding="utf-8"))
+    raw["app"] = "slides"
+    raw["operations"] = [{"op": "slides_live_set_title", "args": {"title": "Final"}}]
+    raw["policy"] = "review"
+    raw["write"] = {"mode": "save-as", "path": "C:/fixtures/review.pptx"}
+    authorize_plan(Plan.from_dict(raw), dry_run=False)
+    raw["write"] = {"mode": "in-place", "snapshot": "C:/fixtures/before.pptx"}
+    with pytest.raises(PolicyError, match="in-place"):
+        authorize_plan(Plan.from_dict(raw), dry_run=False)
+
+
 def test_schema_documents_are_valid_json():
     for path in Path("schemas").glob("*.schema.json"):
         assert json.loads(path.read_text(encoding="utf-8"))["$schema"].endswith("2020-12/schema")
