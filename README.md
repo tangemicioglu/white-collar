@@ -89,6 +89,8 @@ white-collar mail send --draft-id DRAFT_ENTRY_ID --dry-run
 
 white-collar setup
 white-collar setup --app mail --policy edit
+white-collar setup --preset safe
+white-collar setup --preset outlook-review
 white-collar doctor
 
 white-collar permissions show

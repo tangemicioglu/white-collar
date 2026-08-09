@@ -19,6 +19,20 @@ white-collar setup --app slides --policy review
 white-collar setup --app mail --policy edit
 ```
 
+For first-run onboarding, use a named preset:
+
+```powershell
+white-collar setup --preset safe
+white-collar setup --preset office-authoring
+white-collar setup --preset outlook-review
+white-collar setup --preset outlook-send
+```
+
+`safe` selects Word/PowerPoint `review` and leaves Outlook disabled.
+`office-authoring` selects Word/PowerPoint `edit` and leaves Outlook disabled.
+The two Outlook presets configure only Outlook and preserve settings for the
+other applications.
+
 The command displays the proposed application-level change and asks for a
 normal `y/N` confirmation. `--json` is available for an explicitly requested
 machine-readable result, but it does not remove the interactive human gate.

@@ -423,6 +423,23 @@ def test_interactive_setup_writes_mailbox_scoped_owner_grant(monkeypatch, capsys
     loaded.require_access("mail", "com", "edit", "draft-1", ("mail.write.compose",))
 
 
+def test_setup_preset_configures_only_its_declared_app(monkeypatch, capsys):
+    stdin = TtyStream("y\n")
+    stderr = TtyStream()
+    monkeypatch.setattr(cli.sys, "stdin", stdin)
+    monkeypatch.setattr(cli.sys, "stderr", stderr)
+    store = MemoryCredentialStore()
+    assert main(
+        ["setup", "--preset", "outlook-review"],
+        adapters=adapters(),
+        authority=Authority.default(),
+        grant_store=store,
+    ) == 0
+    loaded = load_authority(store=store)
+    loaded.require_access("mail", "com", "review", "message-1", ("mail.write.state",))
+    assert not any(grant.app == "word" for grant in loaded.owner_grants)
+
+
 def test_permissions_commands_are_machine_readable(tmp_path, capsys):
     assert main(
         ["permissions", "show", "--policy", "review"],

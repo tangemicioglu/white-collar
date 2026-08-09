@@ -27,6 +27,12 @@ SETUP_APP_POLICIES = {
     "slides": ("disabled", "read-only", "review", "edit"),
     "mail": SETUP_POLICY_NAMES,
 }
+SETUP_PRESETS = {
+    "safe": {"word": "review", "slides": "review", "mail": "disabled"},
+    "office-authoring": {"word": "edit", "slides": "edit", "mail": "disabled"},
+    "outlook-review": {"mail": "review"},
+    "outlook-send": {"mail": "send"},
+}
 
 
 @dataclass(frozen=True)

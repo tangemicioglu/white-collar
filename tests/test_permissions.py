@@ -14,6 +14,7 @@ from whitecollar.permissions import (
     decide,
     require_capability,
     setup_capabilities,
+    SETUP_PRESETS,
 )
 
 
@@ -81,3 +82,10 @@ def test_setup_profiles_are_bounded_per_application():
     assert setup_capabilities("mail", "disabled") == ()
     with pytest.raises(PolicyError, match="not available"):
         setup_capabilities("word", "send")
+
+
+def test_setup_presets_are_explicit_and_mail_send_is_opt_in():
+    assert SETUP_PRESETS["safe"] == {"word": "review", "slides": "review", "mail": "disabled"}
+    assert SETUP_PRESETS["office-authoring"]["mail"] == "disabled"
+    assert SETUP_PRESETS["outlook-review"] == {"mail": "review"}
+    assert SETUP_PRESETS["outlook-send"] == {"mail": "send"}

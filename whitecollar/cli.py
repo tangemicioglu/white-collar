@@ -26,6 +26,7 @@ from .permissions import (
     PROFILE_NAMES,
     SETUP_APP_POLICIES,
     SETUP_POLICY_NAMES,
+    SETUP_PRESETS,
     catalog,
     require_capability,
     setup_capabilities,
@@ -45,6 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup = apps.add_parser("setup", help="human-owner-only application permission setup")
     setup.add_argument("--app", dest="setup_app", choices=("word", "slides", "mail"))
     setup.add_argument("--policy", choices=SETUP_POLICY_NAMES)
+    setup.add_argument("--preset", choices=tuple(SETUP_PRESETS), help="apply a named application permission bundle")
     setup.add_argument("--json", action="store_true", help="emit the machine-readable result instead of human setup output")
     apps.add_parser("doctor", help="diagnose local dependencies, backends, and permission readiness")
 
@@ -228,10 +230,20 @@ def _collect_setup_selections(args: argparse.Namespace) -> dict[str, str]:
                 "hint": "ask the human owner to run 'white-collar setup' in their own terminal",
             },
         )
+    if args.preset is not None:
+        if args.setup_app is not None or args.policy is not None:
+            raise ValidationError("--preset cannot be combined with --app or --policy")
+        return dict(SETUP_PRESETS[args.preset])
     if args.setup_app is None and args.policy is not None:
         raise ValidationError("--policy requires --app")
     applications = (args.setup_app,) if args.setup_app else tuple(SETUP_APP_POLICIES)
     selections: dict[str, str] = {}
+    if args.setup_app is None:
+        print(
+            "White-collar setup: choose the highest permission each application may use.\n"
+            "Word and PowerPoint review are safe save-as defaults; Outlook is disabled by default.\n",
+            file=sys.stderr,
+        )
     for app in applications:
         if args.setup_app == app and args.policy is not None:
             policy = args.policy
