@@ -30,6 +30,9 @@ class FakeWordRender:
 
 
 class FakeMail:
+    def __init__(self):
+        self.last_plan = None
+
     def search(self, query, *, limit, folder="Inbox"):
         return [{"id": "m-1", "subject": "Roadmap", "query": query, "folder": folder}][:limit]
 
@@ -40,6 +43,7 @@ class FakeMail:
         return value
 
     def apply(self, plan, *, dry_run):
+        self.last_plan = plan
         return {
             "changes": [{"op": plan.operations[0]["op"], "id": plan.target.id}],
             "written": not dry_run,
@@ -103,6 +107,42 @@ def test_word_apply_dry_run_smoke(make_docx, tmp_path, capsys):
     assert value["changes"][0]["matches"] == 1
 
 
+def test_word_replace_shortcut_compiles_to_validated_plan(make_docx, tmp_path, capsys):
+    target = make_docx(tmp_path / "brief.docx", "Draft")
+    output_path = tmp_path / "reviewed.docx"
+    assert main(
+        [
+            "word",
+            "replace",
+            "--target",
+            str(target),
+            "--find",
+            "Draft",
+            "--replace",
+            "Final",
+            "--output",
+            str(output_path),
+        ],
+        adapters=adapters(),
+        authority=Authority.default(),
+    ) == 0
+    value = output(capsys)
+    assert value["command"] == "word.replace"
+    assert value["policy"] == "review"
+    assert value["data"]["written"] is True
+    assert output_path.exists()
+
+
+def test_word_replace_shortcut_requires_safe_write_shape(tmp_path, capsys):
+    assert main(
+        ["word", "replace", "--target", str(tmp_path / "brief.docx"), "--find", "Draft", "--replace", "Final"],
+        adapters=adapters(),
+        authority=Authority.default(),
+    ) == 2
+    value = output(capsys)
+    assert "--output or --in-place" in value["error"]["message"]
+
+
 def test_default_word_and_slides_review_writes_are_enabled(make_docx, tmp_path, capsys):
     target = make_docx(tmp_path / "brief.docx", "Draft")
     word_plan = write_plan(tmp_path / "word-plan.json", target, tmp_path / "final.docx")
@@ -149,6 +189,42 @@ def test_mail_search_and_read_default_to_read_only(capsys):
     assert searched["data"][0]["id"] == "m-1"
     assert invoke(["mail", "read", "--id", "m-1"], adapters=adapters()) == 0
     assert "body" not in output(capsys)["data"]
+
+
+def test_mail_shortcuts_compile_to_semantic_plans(capsys):
+    fake_mail = FakeMail()
+    runtime = RuntimeAdapters(OoxmlWordAdapter(), FakeSlides(), fake_mail)
+    assert main(
+        [
+            "mail",
+            "draft",
+            "--account",
+            "mailbox",
+            "--to",
+            "person@example.com",
+            "--subject",
+            "Test",
+            "--body",
+            "Hello",
+            "--dry-run",
+        ],
+        adapters=runtime,
+        authority=Authority.for_testing(),
+    ) == 0
+    value = output(capsys)
+    assert value["command"] == "mail.draft"
+    assert value["changes"][0]["op"] == "mail_live_create_draft"
+    assert fake_mail.last_plan.operations[0]["args"]["to"] == "person@example.com"
+
+    assert main(
+        ["mail", "send", "--draft-id", "draft-1", "--dry-run"],
+        adapters=runtime,
+        authority=Authority.for_testing(),
+    ) == 0
+    value = output(capsys)
+    assert value["command"] == "mail.send"
+    assert value["policy"] == "send"
+    assert fake_mail.last_plan.operations[0]["op"] == "mail_live_send"
 
 
 def test_mail_backend_and_folder_flags_reach_the_adapter(capsys):

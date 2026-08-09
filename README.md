@@ -66,6 +66,7 @@ responses omit that false-valued field to keep agent context small.
 white-collar word inspect C:\work\brief.docx
 white-collar word inspect C:\work\brief.docx --backend com --render-dir C:\work\brief-rendered
 white-collar word apply --plan C:\work\replace.plan.json --dry-run
+white-collar word replace --target C:\work\brief.docx --find Draft --replace Final --output C:\work\brief-reviewed.docx
 white-collar word apply --plan C:\work\replace.plan.json
 white-collar word inspect C:\work\brief.docx --backend com
 white-collar word apply --plan C:\work\live.plan.json --backend com
@@ -83,6 +84,8 @@ white-collar mail read --backend com --id MESSAGE_ID
 white-collar mail read --id MESSAGE_ID --include-body --policy review
 white-collar mail apply --backend com --plan C:\work\mark-read.plan.json --dry-run
 white-collar mail apply --backend com --plan C:\work\mark-read.plan.json
+white-collar mail draft --account tgemicioglu@outlook.com --to person@example.com --subject "Review" --body "Draft body"
+white-collar mail send --draft-id DRAFT_ENTRY_ID --dry-run
 
 white-collar setup
 white-collar setup --app mail --policy edit

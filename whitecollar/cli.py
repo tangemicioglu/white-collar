@@ -60,6 +60,17 @@ def build_parser() -> argparse.ArgumentParser:
         apply.add_argument("--plan", required=True)
         apply.add_argument("--dry-run", action="store_true")
         apply.add_argument("--backend", choices=("local", "com"), default="local")
+        replace = commands.add_parser("replace", help="bounded text replacement compiled into a validated plan")
+        replace.add_argument("--target", required=True, help="absolute Word document path")
+        replace.add_argument("--find", required=True)
+        replace.add_argument("--replace", required=True, dest="replacement")
+        replace.add_argument("--occurrence", choices=("all", "first"), default="all")
+        replace.add_argument("--output", help="distinct save-as output path")
+        replace.add_argument("--in-place", action="store_true", help="replace the target after creating --snapshot")
+        replace.add_argument("--snapshot", help="required backup path with --in-place")
+        replace.add_argument("--policy", choices=("review", "edit"))
+        replace.add_argument("--dry-run", action="store_true")
+        replace.add_argument("--backend", choices=("local", "com"), default="local")
 
     mail = apps.add_parser("mail")
     mail_commands = mail.add_subparsers(dest="action", required=True, parser_class=JsonArgumentParser)
@@ -78,6 +89,19 @@ def build_parser() -> argparse.ArgumentParser:
     mail_apply.add_argument("--plan", required=True)
     mail_apply.add_argument("--dry-run", action="store_true")
     mail_apply.add_argument("--backend", choices=("local", "com"), default="local")
+    draft = mail_commands.add_parser("draft", help="create a bounded Outlook draft")
+    draft.add_argument("--account", default="mailbox", help="Outlook account address or mailbox")
+    draft.add_argument("--to", required=True)
+    draft.add_argument("--cc")
+    draft.add_argument("--bcc")
+    draft.add_argument("--subject", required=True)
+    draft.add_argument("--body", required=True)
+    draft.add_argument("--dry-run", action="store_true")
+    draft.add_argument("--backend", choices=("com",), default="com")
+    send = mail_commands.add_parser("send", help="send one existing Outlook draft")
+    send.add_argument("--draft-id", required=True)
+    send.add_argument("--dry-run", action="store_true")
+    send.add_argument("--backend", choices=("com",), default="com")
 
     permissions = apps.add_parser("permissions", help="inspect and check local capability grants")
     permission_commands = permissions.add_subparsers(dest="action", required=True, parser_class=JsonArgumentParser)
@@ -263,6 +287,29 @@ def _setup_grants(selections: dict[str, str]) -> tuple[dict[str, tuple[Any, ...]
     return grants_by_app, "\n".join(summary_lines)
 
 
+def _shortcut_result(
+    plan: Plan,
+    *,
+    command: str,
+    dry_run: bool,
+    adapters: RuntimeAdapters,
+    authority: Authority,
+    backend: str,
+) -> dict[str, Any]:
+    data = apply_plan(plan, dry_run=dry_run, adapters=adapters, authority=authority, backend=backend)
+    changes = data.pop("changes", [])
+    target = plan.target.path if hasattr(plan.target, "path") else plan.target.id
+    return result(
+        ok=True,
+        command=command,
+        policy=plan.policy,
+        dry_run=dry_run,
+        target=target,
+        data=data,
+        changes=changes,
+    )
+
+
 def _run(
     args: argparse.Namespace,
     adapters: RuntimeAdapters,
@@ -283,6 +330,91 @@ def _run(
             policy="setup",
             dry_run=False,
             data={"selections": selections, "authority": updated.to_dict()},
+        )
+    if args.app == "word" and args.action == "replace":
+        target = Path(args.target).resolve()
+        if args.in_place:
+            if args.output:
+                raise ValidationError("--in-place cannot be combined with --output")
+            if not args.snapshot:
+                raise ValidationError("--in-place requires --snapshot")
+            policy = args.policy or "edit"
+            write = {"mode": "in-place", "snapshot": str(Path(args.snapshot).resolve())}
+        else:
+            if not args.output:
+                raise ValidationError("word replace requires --output or --in-place")
+            if args.snapshot:
+                raise ValidationError("--snapshot requires --in-place")
+            policy = args.policy or "review"
+            write = {"mode": "save-as", "path": str(Path(args.output).resolve())}
+        args.policy = policy
+        plan = Plan.from_dict(
+            {
+                "schema": "white-collar.plan/v1",
+                "app": "word",
+                "target": {"path": str(target)},
+                "policy": policy,
+                "operations": [{
+                    "op": "replace_text",
+                    "find": args.find,
+                    "replace": args.replacement,
+                    "occurrence": args.occurrence,
+                }],
+                "write": write,
+            }
+        )
+        return _shortcut_result(
+            plan,
+            command=command,
+            dry_run=args.dry_run,
+            adapters=adapters,
+            authority=authority,
+            backend=args.backend,
+        )
+    if args.app == "mail" and args.action == "draft":
+        args.policy = "edit"
+        draft_args = {"to": args.to, "subject": args.subject, "body": args.body}
+        if args.cc is not None:
+            draft_args["cc"] = args.cc
+        if args.bcc is not None:
+            draft_args["bcc"] = args.bcc
+        plan = Plan.from_dict(
+            {
+                "schema": "white-collar.plan/v1",
+                "app": "mail",
+                "target": {"id": args.account},
+                "policy": "edit",
+                "operations": [{"op": "mail_live_create_draft", "args": draft_args}],
+                "write": {"mode": "none"},
+            }
+        )
+        return _shortcut_result(
+            plan,
+            command=command,
+            dry_run=args.dry_run,
+            adapters=adapters,
+            authority=authority,
+            backend=args.backend,
+        )
+    if args.app == "mail" and args.action == "send":
+        args.policy = "send"
+        plan = Plan.from_dict(
+            {
+                "schema": "white-collar.plan/v1",
+                "app": "mail",
+                "target": {"id": args.draft_id},
+                "policy": "send",
+                "operations": [{"op": "mail_live_send"}],
+                "write": {"mode": "none"},
+            }
+        )
+        return _shortcut_result(
+            plan,
+            command=command,
+            dry_run=args.dry_run,
+            adapters=adapters,
+            authority=authority,
+            backend=args.backend,
         )
     if args.app == "permissions" and args.action == "show":
         data = catalog(policy=args.policy, authority=authority)
