@@ -382,6 +382,8 @@ def _permission_denied(
 def _target_matches(app: str, requested: str, allowed: str) -> bool:
     if allowed == "*":
         return True
+    if app == "mail" and allowed == "mailbox":
+        return True
     if app in {"word", "slides"}:
         try:
             return Path(requested).resolve() == Path(allowed).resolve()
@@ -504,6 +506,27 @@ def revoke_all_grants(authority: Authority, store: CredentialStore | None = None
     if active_store is None:
         raise ValidationError("protected OS credential storage is unavailable", details={"human_action_required": True})
     updated = Authority((), source="os-credential-store")
+    _write_authority(updated, active_store)
+    return updated
+
+
+def replace_app_grants(
+    authority: Authority,
+    grants_by_app: dict[str, tuple[Grant, ...]],
+    store: CredentialStore | None = None,
+) -> Authority:
+    """Replace owner grants for configured apps in one protected-store write."""
+
+    active_store = store or default_credential_store()
+    if active_store is None:
+        raise ValidationError("protected OS credential storage is unavailable", details={"human_action_required": True})
+    if any(app not in AUTHORITY_APPS for app in grants_by_app):
+        raise ValidationError("setup contains an unsupported application")
+    if any(grant.app != app for app, grants in grants_by_app.items() for grant in grants):
+        raise ValidationError("setup grant application does not match its application key")
+    configured = set(grants_by_app)
+    existing = [grant for grant in authority.owner_grants if grant.app not in configured]
+    updated = Authority(tuple(existing) + tuple(grant for grants in grants_by_app.values() for grant in grants), source="os-credential-store")
     _write_authority(updated, active_store)
     return updated
 

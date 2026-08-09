@@ -12,6 +12,7 @@ from .authority import (
     Authority,
     load_authority,
     make_grant,
+    replace_app_grants,
     revoke_all_grants,
     revoke_grant,
     save_grant,
@@ -19,7 +20,15 @@ from .authority import (
 from .engine import RuntimeAdapters, apply_plan, inspect_document, read_mail, search_mail
 from .errors import ValidationError, WhiteCollarError
 from .models import Plan, result
-from .permissions import CAPABILITIES, PROFILE_NAMES, catalog, require_capability
+from .permissions import (
+    CAPABILITIES,
+    PROFILE_NAMES,
+    SETUP_APP_POLICIES,
+    SETUP_POLICY_NAMES,
+    catalog,
+    require_capability,
+    setup_capabilities,
+)
 
 
 class JsonArgumentParser(argparse.ArgumentParser):
@@ -31,6 +40,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = JsonArgumentParser(prog="white-collar", description="Narrow local Office control plane")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     apps = parser.add_subparsers(dest="app", required=True, parser_class=JsonArgumentParser)
+
+    setup = apps.add_parser("setup", help="human-owner-only application permission setup")
+    setup.add_argument("--app", dest="setup_app", choices=("word", "slides", "mail"))
+    setup.add_argument("--policy", choices=SETUP_POLICY_NAMES)
+    setup.add_argument("--json", action="store_true", help="emit the machine-readable result instead of human setup output")
 
     for app in ("word", "slides"):
         app_parser = apps.add_parser(app)
@@ -153,8 +167,7 @@ def _human_confirmation(*, action: str, summary: str) -> None:
 def _human_permission_output(args: argparse.Namespace | None) -> bool:
     return bool(
         args
-        and args.app == "permissions"
-        and args.action in {"grant", "revoke"}
+        and ((args.app == "permissions" and args.action in {"grant", "revoke"}) or args.app == "setup")
         and not getattr(args, "json", False)
         and sys.stdin.isatty()
         and sys.stderr.isatty()
@@ -163,15 +176,89 @@ def _human_permission_output(args: argparse.Namespace | None) -> bool:
 
 def _print_human_permission_result(response: dict[str, Any], *, action: str) -> None:
     if response.get("ok"):
-        verb = {"grant": "granted", "revoke": "revoked"}[action]
-        print(f"Permission {verb}.")
-        if action == "grant":
-            print("The grant is stored in protected OS credential storage.")
+        if action == "setup":
+            print("Application permissions updated.")
+            print("The settings are stored in protected OS credential storage.")
         else:
-            print("The grant was removed from protected OS credential storage.")
+            verb = {"grant": "granted", "revoke": "revoked"}[action]
+            print(f"Permission {verb}.")
+            if action == "grant":
+                print("The grant is stored in protected OS credential storage.")
+            else:
+                print("The grant was removed from protected OS credential storage.")
         return
     error = response.get("error", {})
     print(f"white-collar: {error.get('message', 'permission change failed')}", file=sys.stderr)
+
+
+def _collect_setup_selections(args: argparse.Namespace) -> dict[str, str]:
+    if not sys.stdin.isatty() or not sys.stderr.isatty():
+        raise ValidationError(
+            "application permission setup requires an interactive human terminal",
+            details={
+                "human_action_required": True,
+                "agent_instruction": HUMAN_PERMISSION_NOTICE,
+                "hint": "ask the human owner to run 'white-collar setup' in their own terminal",
+            },
+        )
+    if args.setup_app is None and args.policy is not None:
+        raise ValidationError("--policy requires --app")
+    applications = (args.setup_app,) if args.setup_app else tuple(SETUP_APP_POLICIES)
+    selections: dict[str, str] = {}
+    for app in applications:
+        if args.setup_app == app and args.policy is not None:
+            policy = args.policy
+        else:
+            allowed = SETUP_APP_POLICIES[app]
+            default = "disabled" if app == "mail" else "review"
+            print(
+                f"{app} permission [{default}] ({', '.join(allowed)}): ",
+                end="",
+                file=sys.stderr,
+            )
+            sys.stderr.flush()
+            policy = sys.stdin.readline().strip().casefold() or default
+            if policy not in allowed:
+                raise ValidationError(
+                    "unsupported setup policy for application",
+                    details={"app": app, "policy": policy, "allowed": list(allowed)},
+                )
+        if policy not in SETUP_APP_POLICIES[app]:
+            raise ValidationError(
+                "unsupported setup policy for application",
+                details={"app": app, "policy": policy, "allowed": list(SETUP_APP_POLICIES[app])},
+            )
+        selections[app] = policy
+    return selections
+
+
+def _setup_grants(selections: dict[str, str]) -> tuple[dict[str, tuple[Any, ...]], str]:
+    labels = {"word": "Word", "slides": "PowerPoint", "mail": "Outlook"}
+    grants_by_app: dict[str, tuple[Any, ...]] = {}
+    summary_lines = ["Application permission setup:"]
+    for app, policy in selections.items():
+        capabilities = setup_capabilities(app, policy)
+        if policy == "disabled":
+            grants_by_app[app] = ()
+            suffix = "; built-in Word/PowerPoint review remains" if app in {"word", "slides"} else ""
+            summary_lines.append(f"  {labels[app]}: disabled (owner grants removed{suffix})")
+            continue
+        backends = ("local", "com") if app in {"word", "slides"} else ("com",)
+        target = "*" if app in {"word", "slides"} else "mailbox"
+        grants_by_app[app] = tuple(
+            make_grant(
+                app=app,
+                backend=backend,
+                policy=policy,
+                targets=[target],
+                capabilities=list(capabilities),
+            )
+            for backend in backends
+        )
+        scope = "app-wide" if app in {"word", "slides"} else "mailbox-wide"
+        warning = "; includes sending any existing draft" if app == "mail" and policy == "send" else ""
+        summary_lines.append(f"  {labels[app]}: {policy} ({scope}{warning})")
+    return grants_by_app, "\n".join(summary_lines)
 
 
 def _run(
@@ -181,6 +268,18 @@ def _run(
     grant_store: Any | None = None,
 ) -> dict[str, Any]:
     command = _command_name(args)
+    if args.app == "setup":
+        selections = _collect_setup_selections(args)
+        grants_by_app, summary = _setup_grants(selections)
+        _human_confirmation(action="setup", summary=summary)
+        updated = replace_app_grants(authority, grants_by_app, store=grant_store)
+        return result(
+            ok=True,
+            command=command,
+            policy="setup",
+            dry_run=False,
+            data={"selections": selections, "authority": updated.to_dict()},
+        )
     if args.app == "permissions" and args.action == "show":
         data = catalog(policy=args.policy, authority=authority)
         data["authority"] = authority.to_dict()
@@ -326,6 +425,8 @@ def main(
         exit_code = 0
     except WhiteCollarError as exc:
         policy = getattr(parsed, "policy", "read-only") if parsed else "read-only"
+        if parsed is not None and parsed.app == "setup":
+            policy = "setup"
         response = result(
             ok=False,
             command=_command_name(parsed),
@@ -336,6 +437,8 @@ def main(
         exit_code = 2
     except OSError as exc:
         policy = getattr(parsed, "policy", "read-only") if parsed else "read-only"
+        if parsed is not None and parsed.app == "setup":
+            policy = "setup"
         response = result(
             ok=False,
             command=_command_name(parsed),
@@ -345,7 +448,8 @@ def main(
         )
         exit_code = 2
     if _human_permission_output(parsed):
-        _print_human_permission_result(response, action="grant" if parsed.action == "grant" else "revoke")
+        action = "setup" if parsed.app == "setup" else ("grant" if parsed.action == "grant" else "revoke")
+        _print_human_permission_result(response, action=action)
     else:
         print(json.dumps(response, sort_keys=True, separators=(",", ":")))
     return exit_code

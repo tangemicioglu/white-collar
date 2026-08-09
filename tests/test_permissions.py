@@ -13,6 +13,7 @@ from whitecollar.permissions import (
     catalog,
     decide,
     require_capability,
+    setup_capabilities,
 )
 
 
@@ -67,3 +68,16 @@ def test_catalog_is_versioned_and_exposes_grants():
     assert value["schema"] == "white-collar.permissions/v1"
     mail_body = next(item for item in value["capabilities"] if item["name"] == "mail.body.read")
     assert mail_body["granted"] is False
+
+
+def test_setup_profiles_are_bounded_per_application():
+    assert setup_capabilities("mail", "review") == (
+        "mail.body.read",
+        "mail.metadata.read",
+        "mail.write.state",
+    )
+    assert "mail.write.compose" in setup_capabilities("mail", "edit")
+    assert "mail.write.send" in setup_capabilities("mail", "send")
+    assert setup_capabilities("mail", "disabled") == ()
+    with pytest.raises(PolicyError, match="not available"):
+        setup_capabilities("word", "send")

@@ -21,6 +21,12 @@ from .word_ops import WORD_COM_OPERATIONS, WORD_COM_READ_OPERATIONS
 
 PERMISSIONS_SCHEMA = "white-collar.permissions/v1"
 PROFILE_NAMES = ("read-only", "review", "edit", "send")
+SETUP_POLICY_NAMES = ("disabled", "read-only", "review", "edit", "send")
+SETUP_APP_POLICIES = {
+    "word": ("disabled", "read-only", "review", "edit"),
+    "slides": ("disabled", "read-only", "review", "edit"),
+    "mail": SETUP_POLICY_NAMES,
+}
 
 
 @dataclass(frozen=True)
@@ -132,6 +138,23 @@ PROFILE_CAPABILITIES = {
     "edit": _EDIT,
     "send": _SEND,
 }
+
+
+def setup_capabilities(app: str, policy: str) -> tuple[str, ...]:
+    """Return the bounded capability bundle used by the human setup wizard."""
+
+    if policy == "disabled":
+        return ()
+    if app not in SETUP_APP_POLICIES or policy not in SETUP_APP_POLICIES[app]:
+        raise PolicyError(
+            "policy is not available for this application",
+            details={"app": app, "policy": policy},
+        )
+    return tuple(sorted(
+        capability
+        for capability, spec in CAPABILITIES.items()
+        if spec.app == app and capability in PROFILE_CAPABILITIES[policy]
+    ))
 
 
 def capability_for_operation(app: str, operation: str) -> str:

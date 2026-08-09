@@ -84,6 +84,9 @@ white-collar mail read --id MESSAGE_ID --include-body --policy review
 white-collar mail apply --backend com --plan C:\work\mark-read.plan.json --dry-run
 white-collar mail apply --backend com --plan C:\work\mark-read.plan.json
 
+white-collar setup
+white-collar setup --app mail --policy edit
+
 white-collar permissions show
 white-collar permissions show --policy review
 white-collar permissions check --capability word.write.save_as --policy review --backend local --target C:\work\brief.docx
@@ -199,6 +202,19 @@ receives a structured response telling it to stop and ask the human; it must
 not create, edit, confirm, or retry a permission change. The grant payload is
 stored as a protected credential blob and is not accepted from command-line
 JSON or a plan.
+
+`white-collar setup` is the guided human-owner path for application-level
+permission configuration. It can configure one application with
+`--app/--policy`, or prompt for Word, PowerPoint, and Outlook in sequence. Word
+and PowerPoint offer `disabled`, `read-only`, `review`, and `edit`; Outlook also
+offers `send`. The setup writes app-scoped owner grants in one protected update.
+For Outlook, `edit` covers mailbox organization and draft composition, while
+`send` explicitly covers sending any existing draft in the current mailbox.
+Use the lower-level exact-target `permissions grant` command when that scope is
+too broad. Word and PowerPoint's built-in review defaults remain available even
+when setup removes additional owner grants.
+See [the setup guide](docs/permissions-setup.md) for scope details and the
+exact-target alternative.
 
 This is an authority boundary for normal CLI and agent operation, not a promise
 that arbitrary code already running as the same Windows user cannot access that

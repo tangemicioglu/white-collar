@@ -10,6 +10,7 @@ from whitecollar.authority import (
     MemoryCredentialStore,
     load_authority,
     make_grant,
+    replace_app_grants,
     revoke_grant,
     save_grant,
 )
@@ -102,3 +103,28 @@ def test_send_grant_is_a_distinct_exact_target_level():
     authority.require_access("mail", "com", "send", "draft-1", ("mail.write.send",))
     with pytest.raises(PolicyError, match="not been approved"):
         authority.require_access("mail", "com", "send", "draft-2", ("mail.write.send",))
+
+
+def test_mailbox_scope_grant_can_cover_message_targets():
+    authority = save_grant(
+        Authority.default(),
+        make_grant(app="mail", backend="com", policy="send", targets=["mailbox"]),
+        MemoryCredentialStore(),
+    )
+    authority.require_access("mail", "com", "send", "draft-1", ("mail.write.send",))
+
+
+def test_setup_replaces_only_configured_application_grants():
+    store = MemoryCredentialStore()
+    authority = save_grant(
+        Authority.default(),
+        make_grant(app="mail", backend="com", policy="edit", targets=["mailbox"]),
+        store,
+    )
+    updated = replace_app_grants(
+        authority,
+        {"word": (make_grant(app="word", backend="local", policy="edit", targets=["*"], capabilities=["word.write.in_place"]),)},
+        store,
+    )
+    assert any(grant.app == "mail" for grant in updated.owner_grants)
+    assert any(grant.app == "word" and grant.capabilities == ("word.write.in_place",) for grant in updated.owner_grants)

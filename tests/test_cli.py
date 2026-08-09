@@ -7,7 +7,7 @@ import sys
 
 from conftest import write_plan
 from whitecollar.adapters.word import OoxmlWordAdapter
-from whitecollar.authority import Authority, MemoryCredentialStore, make_grant, save_grant
+from whitecollar.authority import Authority, MemoryCredentialStore, load_authority, make_grant, save_grant
 from whitecollar import cli
 from whitecollar.cli import main
 from whitecollar.engine import RuntimeAdapters
@@ -301,6 +301,40 @@ def test_agent_permission_change_requires_human_terminal(tmp_path, capsys):
     assert value["error"]["details"]["human_action_required"] is True
     assert "must stop and ask a human" in value["error"]["details"]["agent_instruction"]
     assert store.value is None
+
+
+def test_setup_requires_human_terminal(tmp_path, capsys):
+    store = MemoryCredentialStore()
+    assert main(
+        ["setup", "--app", "mail", "--policy", "edit"],
+        adapters=adapters(),
+        authority=Authority.default(),
+        grant_store=store,
+    ) == 2
+    value = output(capsys)
+    assert value["command"] == "setup"
+    assert value["error"]["details"]["human_action_required"] is True
+    assert store.value is None
+
+
+def test_interactive_setup_writes_mailbox_scoped_owner_grant(monkeypatch, capsys):
+    stdin = TtyStream("y\n")
+    stderr = TtyStream()
+    monkeypatch.setattr(cli.sys, "stdin", stdin)
+    monkeypatch.setattr(cli.sys, "stderr", stderr)
+    store = MemoryCredentialStore()
+    assert main(
+        ["setup", "--app", "mail", "--policy", "edit"],
+        adapters=adapters(),
+        authority=Authority.default(),
+        grant_store=store,
+    ) == 0
+    assert capsys.readouterr().out == (
+        "Application permissions updated.\n"
+        "The settings are stored in protected OS credential storage.\n"
+    )
+    loaded = load_authority(store=store)
+    loaded.require_access("mail", "com", "edit", "draft-1", ("mail.write.compose",))
 
 
 def test_permissions_commands_are_machine_readable(tmp_path, capsys):
