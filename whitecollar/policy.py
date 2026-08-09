@@ -29,6 +29,7 @@ PROFILES = {
     "read-only": PolicyProfile("read-only", True, False, False, False, PROFILE_CAPABILITIES["read-only"]),
     "review": PolicyProfile("review", True, True, True, False, PROFILE_CAPABILITIES["review"]),
     "edit": PolicyProfile("edit", True, True, True, True, PROFILE_CAPABILITIES["edit"]),
+    "send": PolicyProfile("send", True, True, False, False, PROFILE_CAPABILITIES["send"]),
 }
 
 
@@ -55,6 +56,12 @@ def authorize_plan(
             raise PolicyError("mail mutation plans must use write.mode 'none'")
         if not operations or not operations.issubset(MAIL_COM_MUTATING_OPERATIONS):
             raise PolicyError("mail plan contains an unsupported operation")
+        if "mail_live_send" in operations and operations != {"mail_live_send"}:
+            raise PolicyError("send must be a standalone mail plan")
+        if "mail_live_send" in operations and plan.policy != "send":
+            raise PolicyError("sending mail requires the 'send' policy level")
+        if "mail_live_send" not in operations and plan.policy == "send":
+            raise PolicyError("the 'send' policy level is only valid for sending mail")
         target = plan.target.id
         required_capabilities = tuple(
             capability_for_operation(plan.app, operation)
@@ -67,6 +74,8 @@ def authorize_plan(
         if authority is not None:
             authority.require_access(plan.app, backend, plan.policy, target, required_capabilities)
         return profile
+    if plan.policy == "send":
+        raise PolicyError("the 'send' policy level is only valid for mail plans")
     if plan.app == "word":
         mutating_operations = WORD_COM_MUTATING_OPERATIONS
         read_operation = is_word_read_operation

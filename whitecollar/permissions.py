@@ -20,7 +20,7 @@ from .word_ops import WORD_COM_OPERATIONS, WORD_COM_READ_OPERATIONS
 
 
 PERMISSIONS_SCHEMA = "white-collar.permissions/v1"
-PROFILE_NAMES = ("read-only", "review", "edit")
+PROFILE_NAMES = ("read-only", "review", "edit", "send")
 
 
 @dataclass(frozen=True)
@@ -50,7 +50,7 @@ CAPABILITIES: dict[str, Capability] = {
     "mail.metadata.read": Capability("mail.metadata.read", "mail", "Read mail headers and search metadata", "sensitive", "mailbox"),
     "mail.body.read": Capability("mail.body.read", "mail", "Read the body of a specific message", "sensitive", "message"),
     "mail.attachments.read": Capability("mail.attachments.read", "mail", "Read message attachments", "highly-sensitive", "message"),
-    "mail.write.send": Capability("mail.write.send", "mail", "Send or forward mail", "destructive", "mailbox"),
+    "mail.write.send": Capability("mail.write.send", "mail", "Send an existing Outlook draft", "destructive", "message"),
     "mail.write.organize": Capability("mail.write.organize", "mail", "Mark, move, or delete mail", "destructive", "message"),
 }
 
@@ -114,11 +114,13 @@ _EDIT = _REVIEW | frozenset({
     "slides.write.in_place",
     "mail.write.organize",
 })
+_SEND = _EDIT | frozenset({"mail.write.send"})
 
 PROFILE_CAPABILITIES = {
     "read-only": _READ_ONLY,
     "review": _REVIEW,
     "edit": _EDIT,
+    "send": _SEND,
 }
 
 

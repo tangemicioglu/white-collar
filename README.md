@@ -92,6 +92,7 @@ white-collar permissions grant --app word --backend local --policy review --targ
 white-collar permissions grant --app mail --backend com --policy review --capability mail.metadata.read --target mailbox
 white-collar permissions grant --app mail --backend com --policy review --capability mail.body.read --target MESSAGE_ID
 white-collar permissions grant --app mail --backend com --policy edit --capability mail.write.organize --target MESSAGE_ID
+white-collar permissions grant --app mail --backend com --policy send --capability mail.write.send --target DRAFT_ID
 white-collar permissions revoke --app mail --backend com --policy review --capability mail.body.read --target MESSAGE_ID
 ```
 
@@ -152,12 +153,16 @@ no field for a COM method, object path, macro, or arbitrary Office invocation.
 | `read-only` | yes | no | no | no |
 | `review` | yes | yes | yes | no |
 | `edit` | yes | yes | yes | yes, with snapshot |
+| `send` | mail only | yes | no | no |
 
 The policy is embedded in every mutation plan and checked before an adapter is
 called. `review` is intended for agent workflows that produce a new artifact for
 human review. `edit` is the only profile that permits replacing the target, and
 the plan must provide a distinct snapshot path. A plan's policy is a request;
 it is never an authority grant.
+
+The `send` level is Outlook-only and applies only to sending an existing draft;
+it is separate from `edit` and requires the `mail.write.send` capability.
 
 The CLI loads owner grants from protected OS credential storage, not from a
 JSON configuration file. On Windows this is the native Windows Credential

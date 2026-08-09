@@ -3,7 +3,7 @@
 Message metadata and explicitly requested bodies are exposed for reads. The
 write surface is a finite semantic catalog: mark read/unread, move to a
 standard folder, and delete to Outlook's Deleted Items behavior. It never
-dispatches arbitrary COM methods or sends mail.
+dispatches arbitrary COM methods, composes mail, replies, or forwards mail.
 """
 
 from __future__ import annotations
@@ -102,6 +102,19 @@ class OutlookComAdapter:
                         raise ValidationError("Outlook message does not support Delete", details={"message_id": message_id})
                     delete()
                 changes.append({"op": name, "id": message_id, "deleted": not dry_run})
+                continue
+            if name == "mail_live_send":
+                if bool(_safe_value(item, "Sent", False)):
+                    raise ValidationError(
+                        "refusing to send a message that Outlook already marks as sent",
+                        details={"message_id": message_id},
+                    )
+                if not dry_run:
+                    send = getattr(item, "Send", None)
+                    if not callable(send):
+                        raise ValidationError("Outlook message does not support Send", details={"message_id": message_id})
+                    send()
+                changes.append({"op": name, "id": message_id, "sent": not dry_run})
         return {"changes": changes, "written": not dry_run}
 
     def _get_app(self) -> Any:

@@ -217,6 +217,26 @@ def test_mail_write_plan_requires_edit_and_owner_grant(tmp_path, capsys):
     ) == 0
     assert output(capsys)["changes"][0]["id"] == "m-1"
 
+    plan_path.write_text(
+        json.dumps(
+            {
+                "schema": "white-collar.plan/v1",
+                "app": "mail",
+                "target": {"id": "draft-1"},
+                "policy": "send",
+                "operations": [{"op": "mail_live_send"}],
+                "write": {"mode": "none"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert main(
+        ["mail", "apply", "--plan", str(plan_path), "--backend", "com", "--dry-run"],
+        adapters=adapters(),
+        authority=Authority.for_testing(),
+    ) == 0
+    assert output(capsys)["changes"][0]["op"] == "mail_live_send"
+
 
 def test_agent_permission_change_requires_human_terminal(tmp_path, capsys):
     store = MemoryCredentialStore()

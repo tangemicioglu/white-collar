@@ -3,8 +3,9 @@
 The opt-in Outlook backend uses the current user's Outlook Classic MAPI profile
 through COM. Its finite write catalog currently supports marking a message
 read/unread, moving it to a standard folder, and deleting it through Outlook's
-normal Deleted Items behavior. It does not send, reply, forward, or download
-attachments, and it never exposes arbitrary COM dispatch.
+normal Deleted Items behavior. It does not compose, reply, forward, or download
+attachments, and it never exposes arbitrary COM dispatch. Sending is a
+separate `send` permission level and is limited to an existing draft.
 
 Outlook COM is disabled by default by the authority layer. An owner must
 explicitly grant the exact Outlook capability and target through the human-only
@@ -27,6 +28,7 @@ human-only grant flow in an interactive terminal, for example:
 ```powershell
 white-collar permissions grant --app mail --backend com --policy read-only --capability mail.metadata.read --target mailbox
 white-collar permissions grant --app mail --backend com --policy review --capability mail.body.read --target MESSAGE_ENTRY_ID
+white-collar permissions grant --app mail --backend com --policy send --capability mail.write.send --target DRAFT_ENTRY_ID
 ```
 
 The CLI will refuse a noninteractive permission change and return instructions
@@ -53,6 +55,10 @@ bounded operations. Each requires the human owner to grant
 `mail.write.organize` for the exact message ID. `--dry-run` resolves and
 validates the message but does not modify it.
 
+To send an existing Outlook draft, use `mail_live_send` with the draft's entry
+ID, `policy: "send"`, and a human grant for `mail.write.send`. The adapter will
+not compose, reply, forward, or send an item Outlook already marks as sent.
+
 Search evaluates only message metadata: subject, sender, recipients, and
 attachment count. Supported query selectors are `from:`, `to:`, `cc:`,
 `subject:`, `has:attachment`, and unqualified terms. It does not search message
@@ -63,6 +69,7 @@ standard default folders `Inbox`, `Sent Items`, `Drafts`, `Deleted Items`,
 `mail read` returns metadata under `read-only`. Adding `--include-body` is a
 sensitive read and requires `review` or `edit`; the permission check happens
 before the adapter accesses Outlook. The grant is stored in protected OS
-credential storage, not in an agent-editable file. Mail write is `edit`-only and
-requires an exact human grant; send/forward and attachment-read capabilities
-remain unavailable in this milestone.
+credential storage, not in an agent-editable file. Mail organization is
+`edit`-only and sending is `send`-only; both require exact human grants.
+Forwarding and attachment-read capabilities remain unavailable in this
+milestone.

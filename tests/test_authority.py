@@ -90,3 +90,15 @@ def test_revoke_can_remove_one_capability_from_a_broad_owner_grant(tmp_path):
     updated.require_access("word", "local", "review", target, ("word.read",))
     with pytest.raises(PolicyError, match="not been approved"):
         updated.require_access("word", "local", "review", target, ("word.capture",))
+
+
+def test_send_grant_is_a_distinct_exact_target_level():
+    store = MemoryCredentialStore()
+    authority = save_grant(
+        Authority.default(),
+        make_grant(app="mail", backend="com", policy="send", targets=["draft-1"]),
+        store,
+    )
+    authority.require_access("mail", "com", "send", "draft-1", ("mail.write.send",))
+    with pytest.raises(PolicyError, match="not been approved"):
+        authority.require_access("mail", "com", "send", "draft-2", ("mail.write.send",))

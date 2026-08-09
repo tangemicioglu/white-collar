@@ -12,7 +12,7 @@ from .word_ops import WORD_COM_OPERATIONS, WORD_COM_REQUIRED_ARGS
 PLAN_SCHEMA = "white-collar.plan/v1"
 RESULT_SCHEMA = "white-collar.result/v1"
 APPS = {"word", "slides", "mail"}
-POLICY_NAMES = {"read-only", "review", "edit"}
+POLICY_NAMES = {"read-only", "review", "edit", "send"}
 
 
 def _expect_keys(raw: dict[str, Any], *, required: set[str], optional: set[str], context: str) -> None:
@@ -107,7 +107,7 @@ class Plan:
     schema: str
     app: Literal["word", "slides", "mail"]
     target: Target | MailTarget
-    policy: Literal["read-only", "review", "edit"]
+    policy: Literal["read-only", "review", "edit", "send"]
     operations: tuple[dict[str, Any], ...]
     write: WriteIntent
 
@@ -126,7 +126,7 @@ class Plan:
         if raw["app"] not in APPS:
             raise ValidationError("app must be 'word', 'slides', or 'mail'")
         if raw["policy"] not in POLICY_NAMES:
-            raise ValidationError("policy must be 'read-only', 'review', or 'edit'")
+            raise ValidationError("policy must be 'read-only', 'review', 'edit', or 'send'")
         target = MailTarget.from_dict(raw["target"]) if raw["app"] == "mail" else Target.from_dict(raw["target"])
         write = WriteIntent.from_dict(raw["write"], target)
         operations = raw["operations"]

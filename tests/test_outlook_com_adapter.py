@@ -29,6 +29,8 @@ class FakeMessage:
         self.body_reads = 0
         self.save_calls = 0
         self.deleted = False
+        self.Sent = False
+        self.send_calls = 0
         self.Parent = None
 
     @property
@@ -45,6 +47,10 @@ class FakeMessage:
 
     def Delete(self):
         self.deleted = True
+
+    def Send(self):
+        self.send_calls += 1
+        self.Sent = True
 
 
 class FakeFolder:
@@ -152,3 +158,14 @@ def test_write_operations_mark_move_and_delete_real_fake_items():
     assert first.Parent.Name == "Sent Items"
     adapter.apply(mail_plan("mail_live_delete"), dry_run=False)
     assert first.deleted is True
+
+
+def test_send_requires_send_plan_level_and_dry_run_does_not_send():
+    adapter, first, _ = adapter_and_messages()
+    value = adapter.apply(mail_plan("mail_live_send", policy="send"), dry_run=True)
+    assert value["changes"][0]["sent"] is False
+    assert first.send_calls == 0
+    adapter.apply(mail_plan("mail_live_send", policy="send"), dry_run=False)
+    assert first.send_calls == 1
+    with pytest.raises(ValidationError, match="already marks as sent"):
+        adapter.apply(mail_plan("mail_live_send", policy="send"), dry_run=False)

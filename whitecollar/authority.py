@@ -23,7 +23,7 @@ AUTHORITY_SCHEMA = "white-collar.authority/v2"
 GRANT_SCHEMA = "white-collar.grant/v1"
 AUTHORITY_APPS = ("word", "slides", "mail")
 BACKEND_NAMES = ("local", "com")
-POLICY_RANK = {"read-only": 0, "review": 1, "edit": 2}
+POLICY_RANK = {"read-only": 0, "review": 1, "edit": 2, "send": 3}
 CREDENTIAL_TARGET = "white-collar.owner-grant.v1"
 HUMAN_PERMISSION_NOTICE = (
     "Permission changes are human-owner-only. An agent must stop and ask a human "
@@ -253,7 +253,7 @@ class Authority:
         all_caps = tuple(CAPABILITIES)
         return cls(
             tuple(
-                Grant(app, backend, "edit", all_caps, ("*",))
+                Grant(app, backend, "send" if app == "mail" else "edit", all_caps, ("*",))
                 for app in AUTHORITY_APPS
                 for backend in BACKEND_NAMES
             ),
@@ -360,6 +360,8 @@ def _permission_denied(
     target: str | None,
 ) -> PolicyError:
     command = f"white-collar permissions grant --app {app} --backend {backend} --policy {policy}"
+    for capability in sorted(capabilities):
+        command += f" --capability {capability}"
     if target:
         command += f' --target "{target}"'
     return PolicyError(
@@ -421,6 +423,8 @@ def _parse_grant(raw: Any, index: int) -> Grant:
 def _all_profile_capabilities(app: str, policy: str) -> tuple[str, ...]:
     from .permissions import CAPABILITIES
 
+    if app == "mail" and policy == "send":
+        return ("mail.write.send",)
     return tuple(sorted(name for name, spec in CAPABILITIES.items() if spec.app == app and name in PROFILE_CAPABILITIES[policy]))
 
 

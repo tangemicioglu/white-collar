@@ -102,6 +102,21 @@ def test_mail_write_plan_is_edit_only_and_has_no_file_write_intent():
         Plan.from_dict(raw)
 
 
+def test_mail_send_plan_requires_the_send_policy_level():
+    raw = {
+        "schema": "white-collar.plan/v1",
+        "app": "mail",
+        "target": {"id": "draft-1"},
+        "policy": "edit",
+        "operations": [{"op": "mail_live_send"}],
+        "write": {"mode": "none"},
+    }
+    with pytest.raises(PolicyError, match="'send' policy"):
+        authorize_plan(Plan.from_dict(raw), dry_run=True)
+    raw["policy"] = "send"
+    authorize_plan(Plan.from_dict(raw), dry_run=True)
+
+
 def test_schema_documents_are_valid_json():
     for path in Path("schemas").glob("*.schema.json"):
         assert json.loads(path.read_text(encoding="utf-8"))["$schema"].endswith("2020-12/schema")

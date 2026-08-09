@@ -20,7 +20,7 @@ from .authority import (
 from .engine import RuntimeAdapters, apply_plan, inspect_document, read_mail, search_mail
 from .errors import ValidationError, WhiteCollarError
 from .models import Plan, result
-from .permissions import CAPABILITIES, catalog, require_capability
+from .permissions import CAPABILITIES, PROFILE_NAMES, catalog, require_capability
 
 
 class JsonArgumentParser(argparse.ArgumentParser):
@@ -67,22 +67,22 @@ def build_parser() -> argparse.ArgumentParser:
     permissions = apps.add_parser("permissions", help="inspect and check local capability grants")
     permission_commands = permissions.add_subparsers(dest="action", required=True, parser_class=JsonArgumentParser)
     show = permission_commands.add_parser("show")
-    show.add_argument("--policy", choices=("read-only", "review", "edit"), default="read-only")
+    show.add_argument("--policy", choices=PROFILE_NAMES, default="read-only")
     check = permission_commands.add_parser("check")
     check.add_argument("--capability", required=True)
     check.add_argument("--target")
-    check.add_argument("--policy", choices=("read-only", "review", "edit"), default="read-only")
+    check.add_argument("--policy", choices=PROFILE_NAMES, default="read-only")
     check.add_argument("--backend", choices=("local", "com"), default="local")
     grant = permission_commands.add_parser("grant", help="human-owner-only; store a narrowly scoped grant")
     grant.add_argument("--app", dest="grant_app", choices=("word", "slides", "mail"), required=True)
     grant.add_argument("--backend", choices=("local", "com"), required=True)
-    grant.add_argument("--policy", choices=("read-only", "review", "edit"), required=True)
+    grant.add_argument("--policy", choices=PROFILE_NAMES, required=True)
     grant.add_argument("--target", action="append", required=True, help="exact file, message id, or 'mailbox'; repeat for multiple targets")
     grant.add_argument("--capability", action="append", help="narrow the grant; repeat for multiple capabilities")
     revoke = permission_commands.add_parser("revoke", help="human-owner-only; revoke a narrowly scoped grant")
     revoke.add_argument("--app", dest="grant_app", choices=("word", "slides", "mail"))
     revoke.add_argument("--backend", choices=("local", "com"))
-    revoke.add_argument("--policy", choices=("read-only", "review", "edit"))
+    revoke.add_argument("--policy", choices=PROFILE_NAMES)
     revoke.add_argument("--target", action="append", help="exact target; repeat for multiple targets")
     revoke.add_argument("--capability", action="append", help="identify the grant; repeat for multiple capabilities")
     revoke.add_argument("--all", action="store_true", help="revoke all owner grants; human confirmation is still required")

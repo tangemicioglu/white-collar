@@ -27,7 +27,7 @@
         }
       ]
     },
-    "policy": {"enum": ["read-only", "review", "edit"]},
+    "policy": {"enum": ["read-only", "review", "edit", "send"]},
     "operations": {
       "type": "array",
       "minItems": 1,
@@ -67,7 +67,7 @@
             "additionalProperties": false,
             "required": ["op"],
             "properties": {
-              "op": {"enum": ["mail_live_mark_read", "mail_live_mark_unread", "mail_live_move", "mail_live_delete"]},
+              "op": {"enum": ["mail_live_mark_read", "mail_live_mark_unread", "mail_live_move", "mail_live_delete", "mail_live_send"]},
               "args": {"type": "object"}
             }
           }

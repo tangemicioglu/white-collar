@@ -9,7 +9,7 @@
     "schema": {"const": "white-collar.result/v1"},
     "ok": {"type": "boolean"},
     "command": {"type": "string"},
-    "policy": {"enum": ["read-only", "review", "edit"]},
+    "policy": {"enum": ["read-only", "review", "edit", "send"]},
     "dry_run": {"type": "boolean"},
     "target": {"type": "string"},
     "data": {},

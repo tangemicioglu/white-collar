@@ -30,7 +30,7 @@
           "description": {"type": "string"},
           "risk": {"enum": ["read", "write", "sensitive", "highly-sensitive", "destructive"]},
           "target": {"enum": ["file", "mailbox", "message"]},
-          "profiles": {"type": "array", "items": {"enum": ["read-only", "review", "edit"]}},
+          "profiles": {"type": "array", "items": {"enum": ["read-only", "review", "edit", "send"]}},
           "profile_granted": {"type": "boolean"},
           "authority_granted": {"type": "boolean"},
           "granted": {"type": "boolean"}
