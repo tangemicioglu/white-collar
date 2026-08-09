@@ -35,9 +35,9 @@ def inspect_document(
     if not target.is_absolute():
         raise ValidationError("target must be an absolute path")
     if app == "word":
-        if render_dir is not None:
-            raise ValidationError("render_dir is only supported for slides")
-        return adapters.word.inspect(target)
+        if render_dir is not None and not render_dir.is_absolute():
+            raise ValidationError("render_dir must be an absolute path")
+        return adapters.word.inspect(target, render_dir=render_dir)
     if app == "slides":
         if render_dir is not None and not render_dir.is_absolute():
             raise ValidationError("render_dir must be an absolute path")

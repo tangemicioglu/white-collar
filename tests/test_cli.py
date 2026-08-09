@@ -18,6 +18,14 @@ class FakeSlides:
         return {"changes": [{"operation": 0, "matches": 3}], "written": not dry_run}
 
 
+class FakeWordRender:
+    def inspect(self, target, *, render_dir=None):
+        return {"render_dir": str(render_dir) if render_dir else None}
+
+    def apply(self, plan, *, dry_run):
+        return {"changes": [], "written": not dry_run}
+
+
 class FakeMail:
     def search(self, query, *, limit):
         return [{"id": "m-1", "subject": "Roadmap", "query": query}][:limit]
@@ -65,6 +73,15 @@ def test_slides_inspect_render_dir_smoke(tmp_path, capsys):
     deck = tmp_path / "deck.pptx"
     render_dir = tmp_path / "rendered"
     assert main(["slides", "inspect", str(deck), "--render-dir", str(render_dir)], adapters=adapters()) == 0
+    value = output(capsys)
+    assert value["data"]["render_dir"] == str(render_dir.resolve())
+
+
+def test_word_inspect_render_dir_smoke(tmp_path, capsys):
+    target = tmp_path / "brief.docx"
+    render_dir = tmp_path / "rendered"
+    runtime = RuntimeAdapters(FakeWordRender(), FakeSlides(), FakeMail())
+    assert main(["word", "inspect", str(target), "--backend", "com", "--render-dir", str(render_dir)], adapters=runtime) == 0
     value = output(capsys)
     assert value["data"]["render_dir"] == str(render_dir.resolve())
 

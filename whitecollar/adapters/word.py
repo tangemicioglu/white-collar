@@ -19,7 +19,7 @@ TABLE_TAG = f"{{{WORD_NS}}}tbl"
 
 
 class WordAdapter(Protocol):
-    def inspect(self, target: Path) -> dict[str, Any]: ...
+    def inspect(self, target: Path, *, render_dir: Path | None = None) -> dict[str, Any]: ...
 
     def apply(self, plan: Plan, *, dry_run: bool) -> dict[str, Any]: ...
 
@@ -27,7 +27,9 @@ class WordAdapter(Protocol):
 class OoxmlWordAdapter:
     """A constrained DOCX adapter; it never exposes arbitrary OOXML or COM calls."""
 
-    def inspect(self, target: Path) -> dict[str, Any]:
+    def inspect(self, target: Path, *, render_dir: Path | None = None) -> dict[str, Any]:
+        if render_dir is not None:
+            raise ValidationError("render_dir requires --backend com for Word")
         _validate_docx(target)
         parts = _read_word_parts(target)
         document = parts["word/document.xml"]

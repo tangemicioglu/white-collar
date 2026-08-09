@@ -14,6 +14,12 @@ method names and there is no arbitrary dispatch escape hatch.
 | Undo/capture | `word_live_undo`, `word_screen_capture` |
 | Metadata | `word_live_set_core_properties` |
 
+`word inspect --backend com --render-dir <directory>` is a separate read-only
+inspection option, not a plan operation. It opens a closed target read-only when
+needed, exports through Word's native fixed-format PDF renderer, and writes
+`page-1.png`, `page-2.png`, and so on using the system `pdftoppm` command.
+Existing output files are never overwritten.
+
 Example plan operation:
 
 ```json
@@ -30,10 +36,10 @@ Example plan operation:
 ```
 
 Use `white-collar word apply --backend com --plan plan.json` on Windows with
-Microsoft Word and the optional `office` dependencies installed. The target must
-identify a document already open in Word. A mutation plan must use `review` with
-save-as or `edit` with an explicit in-place snapshot. The COM adapter creates one
-Word undo record per semantic operation.
+Microsoft Word and the optional `office` dependencies installed. Mutation plans
+must identify a document already open in Word. A mutation plan must use `review`
+with save-as or `edit` with an explicit in-place snapshot. The COM adapter
+creates one Word undo record per semantic operation.
 
 The adapter is intentionally not the default runtime. The default local backend
 continues to use Office-free OOXML for the narrow `replace_text` vertical slice,

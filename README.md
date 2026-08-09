@@ -58,6 +58,7 @@ standard output using `white-collar.result/v1`.
 
 ```powershell
 white-collar word inspect C:\work\brief.docx
+white-collar word inspect C:\work\brief.docx --backend com --render-dir C:\work\brief-rendered
 white-collar word apply --plan C:\work\replace.plan.json --dry-run
 white-collar word apply --plan C:\work\replace.plan.json
 white-collar word inspect C:\work\brief.docx --backend com
@@ -139,7 +140,9 @@ They require the target file to already be open in the corresponding Office
 application for mutation plans. PowerPoint inspection can open a closed target
 read-only, and `slides inspect --backend com --render-dir <dir>` uses
 PowerPoint's native `Slide.Export` to write one clean PNG per slide; it does not
-require `pdf2image`. The default backends remain Office-free.
+require `pdf2image`. Word inspection can likewise open a closed target read-only,
+export it through Word's native PDF renderer, and rasterize pages with the system
+`pdftoppm` command. The default backends remain Office-free.
 
 `--dry-run` performs real parsing, targeting, hash checks, and match discovery but
 does not create an output or snapshot. A live Word apply fails closed if an

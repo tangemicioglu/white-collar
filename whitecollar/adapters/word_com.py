@@ -6,6 +6,7 @@ import hashlib
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import time
 import zipfile
@@ -38,10 +39,17 @@ class Win32WordComAdapter:
         self._history: list[dict[str, Any]] = []
         self._pending_comment_package_edits: dict[str, list[dict[str, Any]]] = {}
 
-    def inspect(self, target: Path) -> dict[str, Any]:
+    def inspect(self, target: Path, *, render_dir: Path | None = None) -> dict[str, Any]:
         app = self._get_app()
-        doc = _find_document(app, str(target))
-        return self._get_info(doc) | {"backend": "word-com", "text": self._get_text(doc)["paragraphs"]}
+        doc, opened_here = _find_or_open_for_inspect(app, target)
+        try:
+            data = self._get_info(doc) | {"backend": "word-com", "text": self._get_text(doc)["paragraphs"]}
+            if render_dir is not None:
+                data["renders"] = _render_document(doc, render_dir)
+            return data
+        finally:
+            if opened_here:
+                doc.Close(SaveChanges=False)
 
     def apply(self, plan: Plan, *, dry_run: bool) -> dict[str, Any]:
         if dry_run and all(operation["op"] in WORD_COM_MUTATING_OPERATIONS or operation["op"] == "replace_text" for operation in plan.operations):
@@ -190,6 +198,11 @@ class Win32WordComAdapter:
 
     def _get_text(self, doc: Any) -> dict[str, Any]:
         return self._word_live_get_text(None, doc, {})
+
+    def _get_info(self, doc: Any) -> dict[str, Any]:
+        value = self._word_live_get_info(None, doc, {})
+        value.pop("op", None)
+        return value
 
     def _word_live_get_info(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -870,6 +883,95 @@ def _find_document(app: Any, target: str) -> Any:
         if str(wanted) in candidates or target in candidates or Path(str(_safe_value(doc, "FullName", ""))).resolve() == wanted:
             return doc
     raise ValidationError("target Word document is not open", details={"target": target})
+
+
+def _find_or_open_for_inspect(app: Any, target: Path) -> tuple[Any, bool]:
+    try:
+        return _find_document(app, str(target)), False
+    except ValidationError:
+        if not target.is_file():
+            raise
+        try:
+            document = app.Documents.Open(
+                FileName=str(target),
+                ReadOnly=True,
+                AddToRecentFiles=False,
+                Visible=False,
+            )
+        except Exception as exc:
+            raise ValidationError(
+                "Word could not open the target for inspection",
+                details={"target": str(target), "reason": str(exc)},
+            ) from exc
+        return document, True
+
+
+def _render_document(document: Any, render_dir: Path) -> dict[str, Any]:
+    output_dir = render_dir.resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    existing = sorted(str(path) for path in output_dir.glob("page-*.png"))
+    if existing:
+        raise ValidationError("render output already exists", details={"paths": existing})
+    pdftoppm = shutil.which("pdftoppm")
+    if not pdftoppm:
+        raise BackendUnavailableError("word-render")
+
+    with tempfile.TemporaryDirectory(prefix="white-collar-word-render-") as temporary:
+        temporary_dir = Path(temporary)
+        pdf_path = temporary_dir / "document.pdf"
+        try:
+            document.ExportAsFixedFormat(
+                OutputFileName=str(pdf_path),
+                ExportFormat=17,
+                OpenAfterExport=False,
+                OptimizeFor=0,
+                Range=0,
+                From=0,
+                To=0,
+                Item=0,
+                IncludeDocProps=True,
+                KeepIRM=True,
+                CreateBookmarks=0,
+                DocStructureTags=True,
+                BitmapMissingFonts=True,
+                UseISO19005_1=False,
+            )
+        except Exception as exc:
+            raise ValidationError(
+                "Word could not export the document for rendering",
+                details={"target": str(_safe_value(document, "FullName", "")), "reason": str(exc)},
+            ) from exc
+        if not pdf_path.is_file():
+            raise ValidationError("Word did not create the temporary PDF for rendering", details={"target": str(_safe_value(document, "FullName", ""))})
+
+        prefix = temporary_dir / "page"
+        try:
+            completed = subprocess.run(
+                [pdftoppm, "-png", "-r", "144", str(pdf_path), str(prefix)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except OSError as exc:
+            raise BackendUnavailableError("word-render") from exc
+        if completed.returncode != 0:
+            raise ValidationError(
+                "the PDF renderer could not rasterize the Word document",
+                details={"returncode": completed.returncode, "stderr": completed.stderr.strip()},
+            )
+        rendered = sorted(
+            temporary_dir.glob("page-*.png"),
+            key=lambda path: int(path.stem.rsplit("-", 1)[1]),
+        )
+        if not rendered:
+            raise ValidationError("the PDF renderer produced no Word pages")
+
+        files: list[str] = []
+        for index, source in enumerate(rendered, start=1):
+            destination = output_dir / f"page-{index}.png"
+            shutil.copy2(source, destination)
+            files.append(str(destination))
+    return {"directory": str(output_dir), "format": "png", "pages": len(files), "files": files}
 
 
 def _undo_record(app: Any, name: str):

@@ -29,8 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
         inspect.add_argument("target")
         inspect.add_argument("--policy", choices=("read-only", "review", "edit"), default="read-only")
         inspect.add_argument("--backend", choices=("local", "com"), default="local")
-        if app == "slides":
-            inspect.add_argument("--render-dir", help="write one native PowerPoint PNG per slide")
+        inspect.add_argument("--render-dir", help="write one native Office PNG per page or slide")
         apply = commands.add_parser("apply")
         apply.add_argument("--plan", required=True)
         apply.add_argument("--dry-run", action="store_true")
