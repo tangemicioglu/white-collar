@@ -40,10 +40,14 @@ def require_read(policy: str) -> PolicyProfile:
     return profile
 
 
-def authorize_plan(plan: Plan, *, dry_run: bool, authority: Authority | None = None) -> PolicyProfile:
+def authorize_plan(
+    plan: Plan,
+    *,
+    dry_run: bool,
+    authority: Authority | None = None,
+    backend: str = "local",
+) -> PolicyProfile:
     profile = PROFILES[plan.policy]
-    if authority is not None:
-        authority.require_policy(plan.app, plan.policy)
     operations = {operation["op"] for operation in plan.operations}
     if plan.app == "word":
         mutating_operations = WORD_COM_MUTATING_OPERATIONS
@@ -58,17 +62,54 @@ def authorize_plan(plan: Plan, *, dry_run: bool, authority: Authority | None = N
         raise PolicyError(f"read-only {app_name} operations must use write.mode 'none'")
     if not is_mutation and not all(read_operation(operation) or operation == "replace_text" for operation in operations):
         raise PolicyError("plan contains an unknown operation capability")
+    required_capabilities = {
+        capability_for_operation(plan.app, operation)
+        for operation in operations
+    }
+    write_capability = (
+        f"{plan.app}.write.{plan.write.mode.replace('-', '_')}"
+        if plan.write.mode != "none"
+        else None
+    )
     if not is_mutation:
         if dry_run:
             raise PolicyError("read operations do not need --dry-run")
         for operation in operations:
             require_capability(plan.policy, capability_for_operation(plan.app, operation), target=plan.target.path)
+        if authority is not None:
+            authority.require_access(
+                plan.app,
+                backend,
+                plan.policy,
+                plan.target.path,
+                tuple(required_capabilities),
+            )
         return profile
     if dry_run:
         if not profile.allow_dry_run:
             raise PolicyError(f"policy {plan.policy!r} does not allow mutation plans, including dry-runs")
         for operation in operations:
             require_capability(plan.policy, capability_for_operation(plan.app, operation), target=plan.target.path)
+        if write_capability is not None:
+            require_capability(plan.policy, write_capability, target=plan.target.path)
+            required_capabilities.add(write_capability)
+        if authority is not None:
+            authority.require_access(
+                plan.app,
+                backend,
+                plan.policy,
+                plan.target.path,
+                tuple(required_capabilities),
+            )
+            output_target = plan.write.path or plan.write.snapshot
+            if write_capability is not None and output_target is not None:
+                authority.require_access(
+                    plan.app,
+                    backend,
+                    plan.policy,
+                    output_target,
+                    (write_capability,),
+                )
         return profile
     if plan.write.mode == "none":
         raise PolicyError(f"mutating {app_name} operations require save-as or in-place write intent")
@@ -78,5 +119,24 @@ def authorize_plan(plan: Plan, *, dry_run: bool, authority: Authority | None = N
         raise PolicyError(f"policy {plan.policy!r} does not allow in-place writes")
     for operation in operations:
         require_capability(plan.policy, capability_for_operation(plan.app, operation), target=plan.target.path)
-    require_capability(plan.policy, f"{plan.app}.write.{plan.write.mode.replace('-', '_')}", target=plan.target.path)
+    assert write_capability is not None
+    require_capability(plan.policy, write_capability, target=plan.target.path)
+    required_capabilities.add(write_capability)
+    if authority is not None:
+        authority.require_access(
+            plan.app,
+            backend,
+            plan.policy,
+            plan.target.path,
+            tuple(required_capabilities),
+        )
+        output_target = plan.write.path or plan.write.snapshot
+        if output_target is not None:
+            authority.require_access(
+                plan.app,
+                backend,
+                plan.policy,
+                output_target,
+                (write_capability,),
+            )
     return profile

@@ -7,10 +7,19 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from . import __version__
-from .authority import Authority, load_authority
+from .authority import (
+    HUMAN_CONFIRMATION_PHRASE,
+    HUMAN_PERMISSION_NOTICE,
+    Authority,
+    load_authority,
+    make_grant,
+    revoke_all_grants,
+    revoke_grant,
+    save_grant,
+)
 from .engine import RuntimeAdapters, apply_plan, inspect_document, read_mail, search_mail
 from .errors import ValidationError, WhiteCollarError
-from .models import PLAN_SCHEMA, Plan, result
+from .models import Plan, result
 from .permissions import CAPABILITIES, catalog, require_capability
 
 
@@ -59,6 +68,20 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--capability", required=True)
     check.add_argument("--target")
     check.add_argument("--policy", choices=("read-only", "review", "edit"), default="read-only")
+    check.add_argument("--backend", choices=("local", "com"), default="local")
+    grant = permission_commands.add_parser("grant", help="human-owner-only; store a narrowly scoped grant")
+    grant.add_argument("--app", dest="grant_app", choices=("word", "slides", "mail"), required=True)
+    grant.add_argument("--backend", choices=("local", "com"), required=True)
+    grant.add_argument("--policy", choices=("read-only", "review", "edit"), required=True)
+    grant.add_argument("--target", action="append", required=True, help="exact file, message id, or 'mailbox'; repeat for multiple targets")
+    grant.add_argument("--capability", action="append", help="narrow the grant; repeat for multiple capabilities")
+    revoke = permission_commands.add_parser("revoke", help="human-owner-only; revoke a narrowly scoped grant")
+    revoke.add_argument("--app", dest="grant_app", choices=("word", "slides", "mail"))
+    revoke.add_argument("--backend", choices=("local", "com"))
+    revoke.add_argument("--policy", choices=("read-only", "review", "edit"))
+    revoke.add_argument("--target", action="append", help="exact target; repeat for multiple targets")
+    revoke.add_argument("--capability", action="append", help="identify the grant; repeat for multiple capabilities")
+    revoke.add_argument("--all", action="store_true", help="revoke all owner grants; human confirmation is still required")
     return parser
 
 
@@ -78,7 +101,45 @@ def _command_name(args: argparse.Namespace | None) -> str:
     return ".".join(part for part in (getattr(args, "app", None), getattr(args, "action", None)) if part) or "cli"
 
 
-def _run(args: argparse.Namespace, adapters: RuntimeAdapters, authority: Authority) -> dict[str, Any]:
+def _human_confirmation(*, action: str, summary: str) -> None:
+    """Require a real interactive terminal before changing owner grants."""
+
+    if not sys.stdin.isatty() or not sys.stderr.isatty():
+        raise ValidationError(
+            "owner permission changes require an interactive human terminal",
+            details={
+                "human_action_required": True,
+                "agent_instruction": HUMAN_PERMISSION_NOTICE,
+                "requested_action": action,
+                "requested_grant": summary,
+            },
+        )
+    print("WHITE-COLLAR OWNER PERMISSION CHANGE", file=sys.stderr)
+    print(HUMAN_PERMISSION_NOTICE, file=sys.stderr)
+    print(summary, file=sys.stderr)
+    print(
+        f"If you are the human owner, type {HUMAN_CONFIRMATION_PHRASE!r} to {action}.",
+        file=sys.stderr,
+    )
+    sys.stderr.flush()
+    answer = sys.stdin.readline().strip()
+    if answer != HUMAN_CONFIRMATION_PHRASE:
+        raise ValidationError(
+            "human confirmation was not received; no permission was changed",
+            details={
+                "human_action_required": True,
+                "agent_instruction": HUMAN_PERMISSION_NOTICE,
+                "requested_action": action,
+            },
+        )
+
+
+def _run(
+    args: argparse.Namespace,
+    adapters: RuntimeAdapters,
+    authority: Authority,
+    grant_store: Any | None = None,
+) -> dict[str, Any]:
     command = _command_name(args)
     if args.app == "permissions" and args.action == "show":
         data = catalog(policy=args.policy, authority=authority)
@@ -87,8 +148,44 @@ def _run(args: argparse.Namespace, adapters: RuntimeAdapters, authority: Authori
     if args.app == "permissions" and args.action == "check":
         decision = require_capability(args.policy, args.capability, target=args.target)
         capability = CAPABILITIES[args.capability]
-        authority.require_policy(capability.app, args.policy)
+        authority.require_access(
+            capability.app,
+            args.backend,
+            args.policy,
+            args.target if args.target is not None else "mailbox",
+            (args.capability,),
+        )
         return result(ok=True, command=command, policy=args.policy, dry_run=False, target=args.target, data=decision)
+    if args.app == "permissions" and args.action == "grant":
+        targets = list(args.target)
+        grant = make_grant(
+            app=args.grant_app,
+            backend=args.backend,
+            policy=args.policy,
+            targets=targets,
+            capabilities=args.capability,
+        )
+        _human_confirmation(action="grant", summary=json.dumps(grant.to_dict(), sort_keys=True))
+        updated = save_grant(authority, grant, store=grant_store)
+        return result(ok=True, command=command, policy=args.policy, dry_run=False, data=updated.to_dict())
+    if args.app == "permissions" and args.action == "revoke":
+        if args.all:
+            summary = "Revoke every owner grant currently stored by white-collar."
+            _human_confirmation(action="revoke all grants", summary=summary)
+            updated = revoke_all_grants(authority, store=grant_store)
+        else:
+            if not args.grant_app or not args.backend or not args.policy or not args.target:
+                raise ValidationError("revoke requires --app, --backend, --policy, and --target unless --all is used")
+            grant = make_grant(
+                app=args.grant_app,
+                backend=args.backend,
+                policy=args.policy,
+                targets=list(args.target),
+                capabilities=args.capability,
+            )
+            _human_confirmation(action="revoke", summary=json.dumps(grant.to_dict(), sort_keys=True))
+            updated = revoke_grant(authority, grant, store=grant_store)
+        return result(ok=True, command=command, policy=args.policy, dry_run=False, data=updated.to_dict())
     if args.app in {"word", "slides"} and args.action == "inspect":
         target = Path(args.target).resolve()
         render_dir = Path(args.render_dir).resolve() if getattr(args, "render_dir", None) else None
@@ -110,7 +207,7 @@ def _run(args: argparse.Namespace, adapters: RuntimeAdapters, authority: Authori
                 "plan app does not match command",
                 details={"plan_app": plan.app, "command_app": args.app},
             )
-        data = apply_plan(plan, dry_run=args.dry_run, adapters=adapters, authority=authority)
+        data = apply_plan(plan, dry_run=args.dry_run, adapters=adapters, authority=authority, backend=args.backend)
         changes = data.pop("changes", [])
         return result(
             ok=True,
@@ -150,11 +247,12 @@ def main(
     *,
     adapters: RuntimeAdapters | None = None,
     authority: Authority | None = None,
+    grant_store: Any | None = None,
 ) -> int:
     parsed: argparse.Namespace | None = None
     try:
         parsed = build_parser().parse_args(argv)
-        active_authority = authority or load_authority()
+        active_authority = authority or load_authority(store=grant_store)
         response = _run(
             parsed,
             adapters
@@ -164,6 +262,7 @@ def main(
                 mail_backend=getattr(parsed, "backend", "local") if getattr(parsed, "app", None) == "mail" else "local",
             ),
             active_authority,
+            grant_store,
         )
         exit_code = 0
     except WhiteCollarError as exc:

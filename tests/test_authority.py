@@ -4,35 +4,88 @@ import json
 
 import pytest
 
-from whitecollar.authority import AUTHORITY_SCHEMA, Authority, load_authority
-from whitecollar.errors import PolicyError
+from whitecollar.authority import (
+    GRANT_SCHEMA,
+    Authority,
+    MemoryCredentialStore,
+    load_authority,
+    make_grant,
+    revoke_grant,
+    save_grant,
+)
+from whitecollar.errors import PolicyError, ValidationError
 
 
-def test_default_authority_is_read_only_and_disables_outlook():
+def test_default_authority_is_read_only_and_disables_outlook(tmp_path):
+    target = str((tmp_path / "brief.docx").resolve())
     authority = Authority.default()
-    authority.require_policy("word", "read-only")
+    authority.require_policy("word", "read-only", target=target)
     authority.require_backend("word", "com")
-    with pytest.raises(PolicyError, match="exceeds owner authority"):
-        authority.require_policy("word", "review")
-    with pytest.raises(PolicyError, match="disabled"):
+    with pytest.raises(PolicyError, match="not been approved"):
+        authority.require_policy("word", "review", target=target)
+    with pytest.raises(PolicyError, match="not been approved"):
         authority.require_backend("mail", "com")
 
 
-def test_authority_file_can_grant_only_explicit_owner_values(tmp_path):
-    path = tmp_path / "authority.json"
-    path.write_text(
-        json.dumps(
-            {
-                "schema": AUTHORITY_SCHEMA,
-                "policies": {"word": "review", "mail": "review"},
-                "backends": ["word:com", "mail:com"],
-            }
-        ),
-        encoding="utf-8",
+def test_owner_grant_is_loaded_from_protected_store_and_is_target_scoped(tmp_path):
+    target = str((tmp_path / "brief.docx").resolve())
+    other = str((tmp_path / "other.docx").resolve())
+    store = MemoryCredentialStore()
+    grant = make_grant(
+        app="word",
+        backend="local",
+        policy="review",
+        targets=[target],
+        capabilities=["word.read", "word.write.save_as"],
     )
-    authority = load_authority(path)
-    authority.require_policy("word", "review")
-    authority.require_policy("mail", "review")
-    authority.require_backend("mail", "com")
-    with pytest.raises(PolicyError, match="exceeds owner authority"):
-        authority.require_policy("word", "edit")
+    save_grant(Authority.default(), grant, store)
+    authority = load_authority(store=store)
+    authority.require_access("word", "local", "review", target, ("word.read", "word.write.save_as"))
+    with pytest.raises(PolicyError, match="not been approved"):
+        authority.require_access("word", "local", "review", other, ("word.read",))
+
+
+def test_authority_files_are_rejected_instead_of_being_a_grant(tmp_path):
+    path = tmp_path / "authority.json"
+    path.write_text("{}", encoding="utf-8")
+    with pytest.raises(ValidationError, match="authority files are not supported"):
+        load_authority(path)
+
+
+def test_protected_payload_is_versioned_and_rejects_profile_escalation():
+    raw = {"schema": GRANT_SCHEMA, "grants": []}
+    assert Authority.from_grant_dict(json.loads(json.dumps(raw)), source="test").owner_grants == ()
+    with pytest.raises(ValidationError, match="exceeds its policy"):
+        Authority.from_grant_dict(
+            {
+                "schema": GRANT_SCHEMA,
+                "grants": [
+                    {
+                        "app": "word",
+                        "backend": "local",
+                        "policy": "read-only",
+                        "capabilities": ["word.write.save_as"],
+                        "targets": ["*"],
+                    }
+                ],
+            },
+            source="test",
+        )
+
+
+def test_revoke_can_remove_one_capability_from_a_broad_owner_grant(tmp_path):
+    target = str((tmp_path / "brief.docx").resolve())
+    store = MemoryCredentialStore()
+    broad = make_grant(app="word", backend="local", policy="review", targets=[target])
+    authority = save_grant(Authority.default(), broad, store)
+    narrow = make_grant(
+        app="word",
+        backend="local",
+        policy="review",
+        targets=[target],
+        capabilities=["word.write.save_as"],
+    )
+    updated = revoke_grant(authority, narrow, store)
+    updated.require_access("word", "local", "review", target, ("word.read",))
+    with pytest.raises(PolicyError, match="not been approved"):
+        updated.require_access("word", "local", "review", target, ("word.write.save_as",))

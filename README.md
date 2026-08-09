@@ -81,14 +81,20 @@ white-collar mail read --id MESSAGE_ID --include-body --policy review
 
 white-collar permissions show
 white-collar permissions show --policy review
-white-collar permissions check --capability word.write.save_as --policy review --target C:\work\brief.docx
-white-collar permissions check --capability mail.body.read --policy review --target MESSAGE_ID
+white-collar permissions check --capability word.write.save_as --policy review --backend local --target C:\work\brief.docx
+white-collar permissions check --capability mail.body.read --policy review --backend com --target MESSAGE_ID
+
+# Human owner only: the agent must ask a human to run and confirm this.
+white-collar permissions grant --app word --backend local --policy review --target C:\work\brief.docx --target C:\work\brief-reviewed.docx
+white-collar permissions grant --app mail --backend com --policy review --capability mail.metadata.read --target mailbox
+white-collar permissions grant --app mail --backend com --policy review --capability mail.body.read --target MESSAGE_ID
+white-collar permissions revoke --app mail --backend com --policy review --capability mail.body.read --target MESSAGE_ID
 ```
 
 Mail commands and inspect commands default to `read-only`. Mail search and a
 message metadata read use `mail.metadata.read`; `mail read --include-body`
 requires an explicit `review` or `edit` policy and the `mail.body.read`
-capability, plus owner authority for that policy. No mail write capability is
+capability, plus a matching human-owner grant for that policy. No mail write capability is
 granted by any v0.1 profile.
 
 ## Plans
@@ -147,21 +153,34 @@ human review. `edit` is the only profile that permits replacing the target, and
 the plan must provide a distinct snapshot path. A plan's policy is a request;
 it is never an authority grant.
 
-The CLI loads an owner-controlled authority file from
-`%APPDATA%\white-collar\authority.json`. If it does not exist, all apps are
-limited to `read-only`, Word and PowerPoint COM reads remain enabled, and
-Outlook COM is disabled. There is no command for an agent to create, edit, or
-replace this file. The owner can start from the checked-in
-[authority example](examples/authority-v1.json), place it at the fixed path,
-and protect it with OS file permissions.
+The CLI loads owner grants from protected OS credential storage, not from a
+JSON configuration file. On Windows this is the native Windows Credential
+Manager; on other platforms an installed OS-keyring backend may be used. There
+is no plaintext-file fallback, no `--authority` path, and no checked-in grant
+file for an agent or human to edit. With no owner grant, Word and PowerPoint
+read-only local/COM inspection remains available and Outlook COM is disabled.
 
 The permission layer maps finite app operations to a smaller shared capability
 vocabulary. `white-collar permissions show` exposes that versioned vocabulary;
-`permissions check` checks a requested profile against the active authority
-without invoking an Office adapter. Plans cannot add grants to themselves. File
-capabilities require an absolute target, and message-body access requires a
-message target. The default mail profile can search metadata but does not expose
-message bodies or attachments.
+`permissions check` checks a requested profile against the active owner grant
+without invoking an Office adapter. Plans cannot add grants to themselves.
+Owner grants are exact-target records: file writes require the source and
+output/snapshot paths to be granted, and message-body access requires the
+specific message target. The default mail profile can search metadata only
+through the unavailable local stub; Outlook COM requires a separate explicit
+owner grant.
+
+`permissions grant` and `permissions revoke` are deliberately human-owner-only.
+They require an interactive terminal and an exact confirmation phrase. If an
+agent reaches this path, it receives a structured response telling it to stop
+and ask the human; it must not create, edit, confirm, or retry a permission
+change. The grant payload is stored as a protected credential blob and is not
+accepted from command-line JSON or a plan.
+
+This is an authority boundary for normal CLI and agent operation, not a promise
+that arbitrary code already running as the same Windows user cannot access that
+user's credentials or automate a confirmation UI. Stronger isolation requires a
+separate OS account, broker process, or enterprise endpoint policy.
 
 Outlook Classic is an opt-in COM backend: install the `office` extra and use
 `--backend com`. Its narrow search/read behavior and supported standard folders

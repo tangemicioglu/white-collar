@@ -6,7 +6,7 @@ import sys
 
 from conftest import write_plan
 from whitecollar.adapters.word import OoxmlWordAdapter
-from whitecollar.authority import Authority
+from whitecollar.authority import Authority, MemoryCredentialStore
 from whitecollar.cli import main
 from whitecollar.engine import RuntimeAdapters
 
@@ -132,7 +132,8 @@ def test_agent_cannot_self_escalate_a_plan_policy(make_docx, tmp_path, capsys):
     ) == 2
     value = output(capsys)
     assert value["error"]["details"]["requested_policy"] == "review"
-    assert value["error"]["details"]["maximum_policy"] == "read-only"
+    assert value["error"]["details"]["human_action_required"] is True
+    assert "permissions grant" in value["error"]["details"]["human_only_command"]
 
 
 def test_mail_body_requires_explicit_sensitive_policy(capsys):
@@ -145,6 +146,30 @@ def test_mail_body_requires_explicit_sensitive_policy(capsys):
         adapters=adapters(),
     ) == 0
     assert output(capsys)["data"]["body"] == "Ship it"
+
+
+def test_agent_permission_change_requires_human_terminal(tmp_path, capsys):
+    store = MemoryCredentialStore()
+    assert main(
+        [
+            "permissions",
+            "grant",
+            "--app",
+            "word",
+            "--backend",
+            "local",
+            "--policy",
+            "review",
+            "--target",
+            str((tmp_path / "brief.docx").resolve()),
+        ],
+        authority=Authority.default(),
+        grant_store=store,
+    ) == 2
+    value = output(capsys)
+    assert value["error"]["details"]["human_action_required"] is True
+    assert "must stop and ask a human" in value["error"]["details"]["agent_instruction"]
+    assert store.value is None
 
 
 def test_permissions_commands_are_machine_readable(tmp_path, capsys):

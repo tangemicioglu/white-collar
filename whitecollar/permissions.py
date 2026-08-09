@@ -223,12 +223,7 @@ def catalog(*, policy: str | None = None, authority: Any | None = None) -> dict[
             entry["profile_granted"] = name in selected
             entry["granted"] = name in selected
             if authority is not None:
-                granted_profiles = [profile for profile in PROFILE_NAMES if name in PROFILE_CAPABILITIES[profile]]
-                minimum_profile = granted_profiles[0] if granted_profiles else None
-                maximum_profile = authority.maximum_policy.get(spec.app, "read-only")
-                authority_granted = minimum_profile is not None and (
-                    PROFILE_NAMES.index(maximum_profile) >= PROFILE_NAMES.index(minimum_profile)
-                )
+                authority_granted = authority.has_capability(spec.app, name, policy=policy)
                 entry["authority_granted"] = authority_granted
                 entry["granted"] = entry["granted"] and authority_granted
         capabilities.append(entry)
