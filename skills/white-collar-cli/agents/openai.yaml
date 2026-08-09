@@ -1,0 +1,7 @@
+interface:
+  display_name: "White-Collar CLI"
+  short_description: "Use the safe local Office control plane"
+  default_prompt: "Use $white-collar-cli to operate Word, PowerPoint, or Outlook through validated, policy-aware CLI workflows."
+
+policy:
+  allow_implicit_invocation: true
