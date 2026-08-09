@@ -34,7 +34,8 @@ Example PowerPoint plan operation:
 Use `white-collar slides apply --backend com --plan plan.json` on Windows with
 PowerPoint and the optional `office` dependencies installed. The target
 presentation must already be open in PowerPoint. A mutation plan must use
-`review` with save-as or `edit` with an explicit in-place snapshot. Read
+PowerPoint's built-in default authority allows `review` with save-as. Mutations
+must use `review` with save-as or `edit` with an explicit in-place snapshot. Read
 operations use `read-only` and `write.mode: "none"`.
 
 `tests/test_slides_com_real.py` is the live verification harness. It creates a

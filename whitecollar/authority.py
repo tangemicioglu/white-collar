@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .errors import PolicyError, ValidationError
-from .permissions import CAPABILITIES, PROFILE_CAPABILITIES, PROFILE_NAMES
+from .permissions import PROFILE_CAPABILITIES, PROFILE_NAMES
 
 
 AUTHORITY_SCHEMA = "white-collar.authority/v2"
@@ -208,11 +208,25 @@ class Grant:
 
 
 def _builtin_grants() -> tuple[Grant, ...]:
+    word_review = (
+        "word.read",
+        "word.render",
+        "word.write.content",
+        "word.write.comments",
+        "word.write.metadata",
+        "word.write.save_as",
+    )
+    slides_review = (
+        "slides.read",
+        "slides.render",
+        "slides.write.content",
+        "slides.write.save_as",
+    )
     return (
-        Grant("word", "local", "read-only", ("word.read", "word.render"), ("*",)),
-        Grant("word", "com", "read-only", ("word.read", "word.render"), ("*",)),
-        Grant("slides", "local", "read-only", ("slides.read", "slides.render"), ("*",)),
-        Grant("slides", "com", "read-only", ("slides.read", "slides.render"), ("*",)),
+        Grant("word", "local", "review", word_review, ("*",)),
+        Grant("word", "com", "review", word_review, ("*",)),
+        Grant("slides", "local", "review", slides_review, ("*",)),
+        Grant("slides", "com", "review", slides_review, ("*",)),
         Grant("mail", "local", "read-only", ("mail.metadata.read",), ("mailbox",)),
     )
 
@@ -306,10 +320,12 @@ class Authority:
         if requested not in POLICY_RANK:
             raise PolicyError("authority does not recognize policy", details={"policy": requested})
         if not capabilities:
-            capabilities = tuple(
-                name for name, spec in CAPABILITIES.items()
-                if spec.app == app and name in PROFILE_CAPABILITIES[requested]
-            )
+            for grant in self.grants:
+                if grant.app != app or POLICY_RANK[grant.policy] < POLICY_RANK[requested]:
+                    continue
+                if target is None or any(_target_matches(app, target, allowed) for allowed in grant.targets):
+                    return
+            raise _permission_denied(app, backend, requested, (), target)
         self.require_access(app, backend, requested, target, capabilities)
 
     def require_access(

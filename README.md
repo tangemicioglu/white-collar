@@ -157,14 +157,18 @@ The CLI loads owner grants from protected OS credential storage, not from a
 JSON configuration file. On Windows this is the native Windows Credential
 Manager; on other platforms an installed OS-keyring backend may be used. There
 is no plaintext-file fallback, no `--authority` path, and no checked-in grant
-file for an agent or human to edit. With no owner grant, Word and PowerPoint
-read-only local/COM inspection remains available and Outlook COM is disabled.
+file for an agent or human to edit. Word and PowerPoint have a built-in
+review-level grant for local and COM workflows: reads, dry-runs, and save-as
+writes work by default. In-place replacement, screen capture, and Outlook COM
+remain disabled until explicitly granted by the human owner.
 
 The permission layer maps finite app operations to a smaller shared capability
 vocabulary. `white-collar permissions show` exposes that versioned vocabulary;
 `permissions check` checks a requested profile against the active owner grant
 without invoking an Office adapter. Plans cannot add grants to themselves.
-Owner grants are exact-target records: file writes require the source and
+The built-in Word/PowerPoint review grant is intentionally broader for a smooth
+local authoring workflow, but it still cannot replace an existing target.
+Additional owner grants are exact-target records: file writes require the source and
 output/snapshot paths to be granted, and message-body access requires the
 specific message target. The default mail profile can search metadata only
 through the unavailable local stub; Outlook COM requires a separate explicit

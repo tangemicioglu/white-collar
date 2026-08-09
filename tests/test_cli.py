@@ -69,6 +69,19 @@ def test_word_apply_dry_run_smoke(make_docx, tmp_path, capsys):
     assert value["changes"][0]["matches"] == 1
 
 
+def test_default_word_and_slides_review_writes_are_enabled(make_docx, tmp_path, capsys):
+    target = make_docx(tmp_path / "brief.docx", "Draft")
+    word_plan = write_plan(tmp_path / "word-plan.json", target, tmp_path / "final.docx")
+    assert main(["word", "apply", "--plan", str(word_plan)], adapters=adapters(), authority=Authority.default()) == 0
+    assert output(capsys)["data"]["written"] is True
+    assert (tmp_path / "final.docx").exists()
+
+    deck = tmp_path / "deck.pptx"
+    slides_plan = write_plan(tmp_path / "slides-plan.json", deck, tmp_path / "final.pptx", app="slides")
+    assert main(["slides", "apply", "--plan", str(slides_plan), "--dry-run"], adapters=adapters(), authority=Authority.default()) == 0
+    assert output(capsys)["dry_run"] is True
+
+
 def test_slides_commands_use_only_slides_adapter(tmp_path, capsys):
     deck = tmp_path / "deck.pptx"
     assert invoke(["slides", "inspect", str(deck)], adapters=adapters()) == 0
@@ -122,16 +135,16 @@ def test_outlook_backend_is_disabled_by_default(capsys):
     assert value["error"]["details"]["backend"] == "mail:com"
 
 
-def test_agent_cannot_self_escalate_a_plan_policy(make_docx, tmp_path, capsys):
+def test_agent_cannot_self_escalate_to_edit_policy(make_docx, tmp_path, capsys):
     target = make_docx(tmp_path / "brief.docx", "Draft")
-    plan = write_plan(tmp_path / "plan.json", target, tmp_path / "final.docx")
+    plan = write_plan(tmp_path / "plan.json", target, tmp_path / "final.docx", policy="edit")
     assert main(
         ["word", "apply", "--plan", str(plan), "--dry-run"],
         adapters=adapters(),
         authority=Authority.default(),
     ) == 2
     value = output(capsys)
-    assert value["error"]["details"]["requested_policy"] == "review"
+    assert value["error"]["details"]["requested_policy"] == "edit"
     assert value["error"]["details"]["human_action_required"] is True
     assert "permissions grant" in value["error"]["details"]["human_only_command"]
 

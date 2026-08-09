@@ -37,7 +37,8 @@ Example plan operation:
 
 Use `white-collar word apply --backend com --plan plan.json` on Windows with
 Microsoft Word and the optional `office` dependencies installed. Mutation plans
-must identify a document already open in Word. A mutation plan must use `review`
+must identify a document already open in Word. Word's built-in default authority
+allows `review` mutation plans with save-as. A mutation plan must use `review`
 with save-as or `edit` with an explicit in-place snapshot. The COM adapter
 creates one Word undo record per semantic operation.
 

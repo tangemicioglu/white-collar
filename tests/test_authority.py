@@ -16,13 +16,14 @@ from whitecollar.authority import (
 from whitecollar.errors import PolicyError, ValidationError
 
 
-def test_default_authority_is_read_only_and_disables_outlook(tmp_path):
+def test_default_authority_allows_review_writes_but_disables_edit_and_outlook(tmp_path):
     target = str((tmp_path / "brief.docx").resolve())
     authority = Authority.default()
     authority.require_policy("word", "read-only", target=target)
     authority.require_backend("word", "com")
+    authority.require_policy("word", "review", target=target)
     with pytest.raises(PolicyError, match="not been approved"):
-        authority.require_policy("word", "review", target=target)
+        authority.require_policy("word", "edit", target=target)
     with pytest.raises(PolicyError, match="not been approved"):
         authority.require_backend("mail", "com")
 
@@ -36,13 +37,13 @@ def test_owner_grant_is_loaded_from_protected_store_and_is_target_scoped(tmp_pat
         backend="local",
         policy="review",
         targets=[target],
-        capabilities=["word.read", "word.write.save_as"],
+        capabilities=["word.capture"],
     )
     save_grant(Authority.default(), grant, store)
     authority = load_authority(store=store)
-    authority.require_access("word", "local", "review", target, ("word.read", "word.write.save_as"))
+    authority.require_access("word", "local", "review", target, ("word.capture",))
     with pytest.raises(PolicyError, match="not been approved"):
-        authority.require_access("word", "local", "review", other, ("word.read",))
+        authority.require_access("word", "local", "review", other, ("word.capture",))
 
 
 def test_authority_files_are_rejected_instead_of_being_a_grant(tmp_path):
@@ -83,9 +84,9 @@ def test_revoke_can_remove_one_capability_from_a_broad_owner_grant(tmp_path):
         backend="local",
         policy="review",
         targets=[target],
-        capabilities=["word.write.save_as"],
+        capabilities=["word.capture"],
     )
     updated = revoke_grant(authority, narrow, store)
     updated.require_access("word", "local", "review", target, ("word.read",))
     with pytest.raises(PolicyError, match="not been approved"):
-        updated.require_access("word", "local", "review", target, ("word.write.save_as",))
+        updated.require_access("word", "local", "review", target, ("word.capture",))
