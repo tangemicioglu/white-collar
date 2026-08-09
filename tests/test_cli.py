@@ -5,6 +5,8 @@ import io
 import subprocess
 import sys
 
+import pytest
+
 from conftest import write_plan
 from whitecollar.adapters.word import OoxmlWordAdapter
 from whitecollar.authority import Authority, MemoryCredentialStore, load_authority, make_grant, save_grant
@@ -96,6 +98,23 @@ def test_doctor_is_machine_readable_and_does_not_need_office(capsys):
     assert value["data"]["backends"]["word"]["local"]["status"] == "ready"
     assert value["data"]["permissions"]["owner_grants"] == 0
     assert value["data"]["permissions"]["targets"].startswith("redacted")
+
+
+def test_powershell_completion_is_available_as_a_raw_script(capsys):
+    assert main(["completions", "powershell"], adapters=adapters(), authority=Authority.default()) == 0
+    script = capsys.readouterr().out
+    assert "Register-ArgumentCompleter" in script
+    assert "white-collar" in script
+    assert "outlook-send" in script
+
+
+def test_root_help_contains_copyable_examples(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--help"], adapters=adapters(), authority=Authority.default())
+    assert exc_info.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "white-collar word replace" in help_text
+    assert "white-collar setup --preset safe" in help_text
 
 
 def test_word_apply_dry_run_smoke(make_docx, tmp_path, capsys):

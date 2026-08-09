@@ -92,6 +92,7 @@ white-collar setup --app mail --policy edit
 white-collar setup --preset safe
 white-collar setup --preset outlook-review
 white-collar doctor
+white-collar completions powershell | Out-String | Invoke-Expression
 
 white-collar permissions show
 white-collar permissions show --redacted

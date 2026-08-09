@@ -19,6 +19,7 @@ from .authority import (
 )
 from .engine import RuntimeAdapters, apply_plan, inspect_document, read_mail, search_mail
 from .doctor import diagnose
+from .completion import completion_script
 from .errors import ValidationError, WhiteCollarError
 from .models import Plan, result
 from .permissions import (
@@ -39,7 +40,19 @@ class JsonArgumentParser(argparse.ArgumentParser):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = JsonArgumentParser(prog="white-collar", description="Narrow local Office control plane")
+    parser = JsonArgumentParser(
+        prog="white-collar",
+        description="Narrow, safety-aware local Office control plane",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  white-collar doctor\n"
+            "  white-collar word replace --target C:\\work\\brief.docx --find Draft --replace Final --output C:\\work\\reviewed.docx\n"
+            "  white-collar mail draft --to person@example.com --subject Review --body \"Draft body\"\n"
+            "  white-collar setup --preset safe\n"
+            "  white-collar completions powershell | Out-String | Invoke-Expression"
+        ),
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     apps = parser.add_subparsers(dest="app", required=True, parser_class=JsonArgumentParser)
 
@@ -51,7 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     apps.add_parser("doctor", help="diagnose local dependencies, backends, and permission readiness")
 
     for app in ("word", "slides"):
-        app_parser = apps.add_parser(app)
+        app_parser = apps.add_parser(app, help=f"inspect and edit {app} documents")
         commands = app_parser.add_subparsers(dest="action", required=True, parser_class=JsonArgumentParser)
         inspect = commands.add_parser("inspect")
         inspect.add_argument("target")
@@ -74,7 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
         replace.add_argument("--dry-run", action="store_true")
         replace.add_argument("--backend", choices=("local", "com"), default="local")
 
-    mail = apps.add_parser("mail")
+    mail = apps.add_parser("mail", help="search, read, draft, and send Outlook mail")
     mail_commands = mail.add_subparsers(dest="action", required=True, parser_class=JsonArgumentParser)
     search = mail_commands.add_parser("search")
     search.add_argument("--query", required=True)
@@ -130,6 +143,8 @@ def build_parser() -> argparse.ArgumentParser:
     revoke.add_argument("--capability", action="append", help="identify the grant; repeat for multiple capabilities")
     revoke.add_argument("--all", action="store_true", help="revoke all owner grants; human confirmation is still required")
     revoke.add_argument("--json", action="store_true", help="emit the machine-readable result instead of the human confirmation output")
+    completions = apps.add_parser("completions", help="print shell completion code")
+    completions.add_argument("shell", choices=("powershell",), help="shell to generate completion code for")
     return parser
 
 
@@ -559,6 +574,9 @@ def main(
     parsed: argparse.Namespace | None = None
     try:
         parsed = build_parser().parse_args(argv)
+        if parsed.app == "completions":
+            print(completion_script(parsed.shell), end="")
+            return 0
         active_authority = authority or load_authority(store=grant_store)
         response = _run(
             parsed,
