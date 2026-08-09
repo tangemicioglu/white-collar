@@ -217,3 +217,6 @@ rasterizer is unavailable.
 The PowerPoint catalog is intentionally semantic and finite. The CLI does not
 expose arbitrary COM methods or import `ppt-mcp` source; that project may inform
 future behavior, but it is not a public command model or a copied backend.
+
+The committed [real Office review artifacts](artifacts/office/README.md) include
+one final `.docx` and one final `.pptx` produced by the live operation harness.
