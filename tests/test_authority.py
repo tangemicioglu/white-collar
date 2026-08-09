@@ -35,16 +35,16 @@ def test_owner_grant_is_loaded_from_protected_store_and_is_target_scoped(tmp_pat
     store = MemoryCredentialStore()
     grant = make_grant(
         app="word",
-        backend="local",
+        backend="com",
         policy="review",
         targets=[target],
         capabilities=["word.capture"],
     )
     save_grant(Authority.default(), grant, store)
     authority = load_authority(store=store)
-    authority.require_access("word", "local", "review", target, ("word.capture",))
+    authority.require_access("word", "com", "review", target, ("word.capture",))
     with pytest.raises(PolicyError, match="not been approved"):
-        authority.require_access("word", "local", "review", other, ("word.capture",))
+        authority.require_access("word", "com", "review", other, ("word.capture",))
 
 
 def test_authority_files_are_rejected_instead_of_being_a_grant(tmp_path):
@@ -64,7 +64,7 @@ def test_protected_payload_is_versioned_and_rejects_profile_escalation():
                 "grants": [
                     {
                         "app": "word",
-                        "backend": "local",
+                        "backend": "com",
                         "policy": "read-only",
                         "capabilities": ["word.write.save_as"],
                         "targets": ["*"],
@@ -78,19 +78,19 @@ def test_protected_payload_is_versioned_and_rejects_profile_escalation():
 def test_revoke_can_remove_one_capability_from_a_broad_owner_grant(tmp_path):
     target = str((tmp_path / "brief.docx").resolve())
     store = MemoryCredentialStore()
-    broad = make_grant(app="word", backend="local", policy="review", targets=[target])
+    broad = make_grant(app="word", backend="com", policy="review", targets=[target])
     authority = save_grant(Authority.default(), broad, store)
     narrow = make_grant(
         app="word",
-        backend="local",
+        backend="com",
         policy="review",
         targets=[target],
         capabilities=["word.capture"],
     )
     updated = revoke_grant(authority, narrow, store)
-    updated.require_access("word", "local", "review", target, ("word.read",))
+    updated.require_access("word", "com", "review", target, ("word.read",))
     with pytest.raises(PolicyError, match="not been approved"):
-        updated.require_access("word", "local", "review", target, ("word.capture",))
+        updated.require_access("word", "com", "review", target, ("word.capture",))
 
 
 def test_send_grant_is_a_distinct_exact_target_level():
@@ -133,7 +133,7 @@ def test_setup_replaces_only_configured_application_grants():
     )
     updated = replace_app_grants(
         authority,
-        {"word": (make_grant(app="word", backend="local", policy="edit", targets=["*"], capabilities=["word.write.in_place"]),)},
+        {"word": (make_grant(app="word", backend="com", policy="edit", targets=["*"], capabilities=["word.write.in_place"]),)},
         store,
     )
     assert any(grant.app == "mail" for grant in updated.owner_grants)

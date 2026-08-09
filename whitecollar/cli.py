@@ -42,7 +42,7 @@ class JsonArgumentParser(argparse.ArgumentParser):
 def build_parser() -> argparse.ArgumentParser:
     parser = JsonArgumentParser(
         prog="white-collar",
-        description="Narrow, safety-aware local Office control plane",
+        description="Narrow, safety-aware Windows Office COM control plane",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
@@ -61,7 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup.add_argument("--policy", choices=SETUP_POLICY_NAMES)
     setup.add_argument("--preset", choices=tuple(SETUP_PRESETS), help="apply a named application permission bundle")
     setup.add_argument("--json", action="store_true", help="emit the machine-readable result instead of human setup output")
-    apps.add_parser("doctor", help="diagnose local dependencies, backends, and permission readiness")
+    apps.add_parser("doctor", help="diagnose Windows Office COM dependencies and permission readiness")
 
     for app in ("word", "slides"):
         app_parser = apps.add_parser(app, help=f"inspect and edit {app} documents")
@@ -69,12 +69,12 @@ def build_parser() -> argparse.ArgumentParser:
         inspect = commands.add_parser("inspect")
         inspect.add_argument("target")
         inspect.add_argument("--policy", choices=("read-only", "review", "edit"), default="read-only")
-        inspect.add_argument("--backend", choices=("local", "com"), default="local")
+        inspect.add_argument("--backend", choices=("com",), default="com")
         inspect.add_argument("--render-dir", help="write one native Office PNG per page or slide")
         apply = commands.add_parser("apply")
         apply.add_argument("--plan", required=True)
         apply.add_argument("--dry-run", action="store_true")
-        apply.add_argument("--backend", choices=("local", "com"), default="local")
+        apply.add_argument("--backend", choices=("com",), default="com")
         replace = commands.add_parser("replace", help="bounded text replacement compiled into a validated plan")
         replace.add_argument("--target", required=True, help="absolute Word document path")
         replace.add_argument("--find", required=True)
@@ -85,7 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
         replace.add_argument("--snapshot", help="required backup path with --in-place")
         replace.add_argument("--policy", choices=("review", "edit"))
         replace.add_argument("--dry-run", action="store_true")
-        replace.add_argument("--backend", choices=("local", "com"), default="local")
+        replace.add_argument("--backend", choices=("com",), default="com")
 
     mail = apps.add_parser("mail", help="search, read, draft, and send Outlook mail")
     mail_commands = mail.add_subparsers(dest="action", required=True, parser_class=JsonArgumentParser)
@@ -94,16 +94,16 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--limit", type=int, default=20)
     search.add_argument("--folder", default="Inbox", help="Inbox, Sent Items, Drafts, or another supported default folder")
     search.add_argument("--policy", choices=("read-only", "review", "edit"), default="read-only")
-    search.add_argument("--backend", choices=("local", "com"), default="local")
+    search.add_argument("--backend", choices=("com",), default="com")
     read = mail_commands.add_parser("read")
     read.add_argument("--id", required=True, dest="message_id")
     read.add_argument("--policy", choices=("read-only", "review", "edit"), default="read-only")
     read.add_argument("--include-body", action="store_true", help="request sensitive message body access")
-    read.add_argument("--backend", choices=("local", "com"), default="local")
+    read.add_argument("--backend", choices=("com",), default="com")
     mail_apply = mail_commands.add_parser("apply")
     mail_apply.add_argument("--plan", required=True)
     mail_apply.add_argument("--dry-run", action="store_true")
-    mail_apply.add_argument("--backend", choices=("local", "com"), default="local")
+    mail_apply.add_argument("--backend", choices=("com",), default="com")
     draft = mail_commands.add_parser("draft", help="create a bounded Outlook draft")
     draft.add_argument("--account", default="mailbox", help="Outlook account address or mailbox")
     draft.add_argument("--to", required=True)
@@ -118,7 +118,7 @@ def build_parser() -> argparse.ArgumentParser:
     send.add_argument("--dry-run", action="store_true")
     send.add_argument("--backend", choices=("com",), default="com")
 
-    permissions = apps.add_parser("permissions", help="inspect and check local capability grants")
+    permissions = apps.add_parser("permissions", help="inspect and check capability grants")
     permission_commands = permissions.add_subparsers(dest="action", required=True, parser_class=JsonArgumentParser)
     show = permission_commands.add_parser("show")
     show.add_argument("--policy", choices=PROFILE_NAMES, default="read-only")
@@ -127,17 +127,17 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--capability", required=True)
     check.add_argument("--target")
     check.add_argument("--policy", choices=PROFILE_NAMES, default="read-only")
-    check.add_argument("--backend", choices=("local", "com"), default="local")
+    check.add_argument("--backend", choices=("com",), default="com")
     grant = permission_commands.add_parser("grant", help="human-owner-only; store a narrowly scoped grant")
     grant.add_argument("--app", dest="grant_app", choices=("word", "slides", "mail"), required=True)
-    grant.add_argument("--backend", choices=("local", "com"), required=True)
+    grant.add_argument("--backend", choices=("com",), required=True)
     grant.add_argument("--policy", choices=PROFILE_NAMES, required=True)
     grant.add_argument("--target", action="append", required=True, help="exact file, message id, or 'mailbox'; repeat for multiple targets")
     grant.add_argument("--capability", action="append", help="narrow the grant; repeat for multiple capabilities")
     grant.add_argument("--json", action="store_true", help="emit the machine-readable result instead of the human confirmation output")
     revoke = permission_commands.add_parser("revoke", help="human-owner-only; revoke a narrowly scoped grant")
     revoke.add_argument("--app", dest="grant_app", choices=("word", "slides", "mail"))
-    revoke.add_argument("--backend", choices=("local", "com"))
+    revoke.add_argument("--backend", choices=("com",))
     revoke.add_argument("--policy", choices=PROFILE_NAMES)
     revoke.add_argument("--target", action="append", help="exact target; repeat for multiple targets")
     revoke.add_argument("--capability", action="append", help="identify the grant; repeat for multiple capabilities")
@@ -297,7 +297,7 @@ def _setup_grants(selections: dict[str, str]) -> tuple[dict[str, tuple[Any, ...]
             suffix = "; built-in Word/PowerPoint review remains" if app in {"word", "slides"} else ""
             summary_lines.append(f"  {labels[app]}: disabled (owner grants removed{suffix})")
             continue
-        backends = ("local", "com") if app in {"word", "slides"} else ("com",)
+        backends = ("com",)
         target = "*" if app in {"word", "slides"} else "mailbox"
         grants_by_app[app] = tuple(
             make_grant(
@@ -581,11 +581,7 @@ def main(
         response = _run(
             parsed,
             adapters
-            or RuntimeAdapters.local(
-                word_backend=getattr(parsed, "backend", "local") if getattr(parsed, "app", None) == "word" else "local",
-                slides_backend=getattr(parsed, "backend", "local") if getattr(parsed, "app", None) == "slides" else "local",
-                mail_backend=getattr(parsed, "backend", "local") if getattr(parsed, "app", None) == "mail" else "local",
-            ),
+            or RuntimeAdapters.live(),
             active_authority,
             grant_store,
         )

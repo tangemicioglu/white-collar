@@ -2,8 +2,8 @@
 
 The agent may request a capability in a plan or command. It may not create the
 grant that authorizes that request. Owner grants are stored in Windows
-Credential Manager on Windows and in an installed OS-keyring backend
-elsewhere; there is deliberately no JSON-file fallback.
+Credential Manager; there is deliberately no JSON-file or cross-platform
+keyring fallback.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from .permissions import PROFILE_CAPABILITIES, PROFILE_NAMES
 AUTHORITY_SCHEMA = "white-collar.authority/v2"
 GRANT_SCHEMA = "white-collar.grant/v1"
 AUTHORITY_APPS = ("word", "slides", "mail")
-BACKEND_NAMES = ("local", "com")
+BACKEND_NAMES = ("com",)
 POLICY_RANK = {"read-only": 0, "review": 1, "edit": 2, "send": 3}
 CREDENTIAL_TARGET = "white-collar.owner-grant.v1"
 HUMAN_PERMISSION_NOTICE = (
@@ -154,38 +154,8 @@ class WindowsCredentialStore:
             raise self._error("CredDeleteW")
 
 
-class KeyringCredentialStore:
-    """Optional cross-platform OS-keyring backend; never falls back to a file."""
-
-    def __init__(self) -> None:
-        try:
-            import keyring  # type: ignore
-        except ImportError as exc:  # pragma: no cover - depends on environment
-            raise RuntimeError("install the keyring package for protected grant storage") from exc
-        self._keyring = keyring
-
-    def read(self, target: str = CREDENTIAL_TARGET) -> bytes | None:
-        value = self._keyring.get_password("white-collar", target)
-        return value.encode("utf-8") if value is not None else None
-
-    def write(self, value: bytes, target: str = CREDENTIAL_TARGET) -> None:
-        self._keyring.set_password("white-collar", target, value.decode("utf-8"))
-
-    def delete(self, target: str = CREDENTIAL_TARGET) -> None:
-        try:
-            self._keyring.delete_password("white-collar", target)
-        except Exception as exc:  # keyring backends use different not-found errors
-            if "not found" not in str(exc).lower() and "no password" not in str(exc).lower():
-                raise
-
-
 def default_credential_store() -> CredentialStore | None:
-    if os.name == "nt":
-        return WindowsCredentialStore()
-    try:
-        return KeyringCredentialStore()
-    except RuntimeError:
-        return None
+    return WindowsCredentialStore() if os.name == "nt" else None
 
 
 @dataclass(frozen=True)
@@ -222,11 +192,8 @@ def _builtin_grants() -> tuple[Grant, ...]:
         "slides.write.save_as",
     )
     return (
-        Grant("word", "local", "review", word_review, ("*",)),
         Grant("word", "com", "review", word_review, ("*",)),
-        Grant("slides", "local", "review", slides_review, ("*",)),
         Grant("slides", "com", "review", slides_review, ("*",)),
-        Grant("mail", "local", "read-only", ("mail.metadata.read",), ("mailbox",)),
     )
 
 
@@ -312,7 +279,7 @@ class Authority:
         app: str,
         requested: str,
         *,
-        backend: str = "local",
+        backend: str = "com",
         target: str | None = None,
         capabilities: tuple[str, ...] = (),
     ) -> None:
@@ -464,8 +431,8 @@ def save_grant(authority: Authority, grant: Grant, store: CredentialStore | None
     active_store = store or default_credential_store()
     if active_store is None:
         raise ValidationError(
-            "protected OS credential storage is unavailable",
-            details={"human_action_required": True, "hint": "install an OS keyring backend; no plaintext file fallback is supported"},
+            "Windows Credential Manager is unavailable",
+            details={"human_action_required": True, "hint": "white-collar requires Windows Credential Manager; no plaintext file fallback is supported"},
         )
     existing = list(authority.owner_grants)
     if grant not in existing:

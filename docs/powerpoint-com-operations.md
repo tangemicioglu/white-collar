@@ -1,6 +1,6 @@
 # PowerPoint COM operation coverage
 
-The opt-in `--backend com` PowerPoint adapter exposes a finite semantic
+The `--backend com` PowerPoint adapter is the only PowerPoint path and exposes a finite semantic
 vocabulary. Plan operations are application-level actions, not PowerPoint COM
 method names; there is no arbitrary dispatch escape hatch.
 

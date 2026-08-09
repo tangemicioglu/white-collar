@@ -47,7 +47,7 @@ def authorize_plan(
     *,
     dry_run: bool,
     authority: Authority | None = None,
-    backend: str = "local",
+    backend: str = "com",
 ) -> PolicyProfile:
     profile = PROFILES[plan.policy]
     operations = {operation["op"] for operation in plan.operations}

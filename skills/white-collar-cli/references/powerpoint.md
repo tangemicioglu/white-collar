@@ -2,9 +2,8 @@
 
 ## Inspect and render
 
-The default slides backend remains Office-free and returns structured
-`backend_unavailable` when no local implementation is available. The live COM
-backend requires Windows, PowerPoint, and the optional `office` extra:
+The slides backend is live PowerPoint COM and requires Windows, PowerPoint, and
+the `office` extra:
 
 ```powershell
 white-collar slides inspect C:\work\deck.pptx --backend com

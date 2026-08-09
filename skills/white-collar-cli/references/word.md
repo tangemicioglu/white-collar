@@ -2,15 +2,15 @@
 
 ## Inspect
 
-The Office-free local adapter reads `.docx` OOXML without Microsoft Word:
+Word operations use the live Word COM adapter on Windows. Microsoft Word must
+be installed; mutation targets must already be open in Word.
 
 ```powershell
-white-collar word inspect C:\work\brief.docx
+white-collar word inspect C:\work\brief.docx --backend com
 ```
 
-The result includes document text, counts, file size, and SHA-256. On Windows
-with Word and the `office` extra installed, the COM backend can inspect a closed
-document and render native Word pages:
+The COM inspector can open a closed document read-only and render native Word
+pages:
 
 ```powershell
 white-collar word inspect C:\work\brief.docx --backend com --render-dir C:\work\brief-rendered
@@ -48,12 +48,13 @@ white-collar word replace `
   --dry-run
 ```
 
-The shortcut supports `--occurrence first|all`, `--backend local|com`,
+The shortcut supports `--occurrence first|all` and `--backend com` (the only
+backend),
 `--snapshot`, and `--expected-sha256` where exposed by the installed CLI.
 
-The local replacement matches within individual OOXML text nodes. A phrase
-split across formatting boundaries may be reported unmatched rather than
-rewritten; inspect the document and use a semantic COM operation when appropriate.
+Replacement uses Word's live semantic range and is not an OOXML text-node
+rewrite. Inspect the document and use the broader semantic plan operations when
+the replacement needs formatting, revisions, or comments preserved explicitly.
 
 ## Plans
 

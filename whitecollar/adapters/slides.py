@@ -2,26 +2,12 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Any, Callable, Iterator, Protocol
+from typing import Any, Callable, Iterator
 
 from ..errors import BackendUnavailableError, ValidationError
 from ..models import Plan
 from ..office_capture import capture_window
 from ..slides_ops import SLIDES_COM_MUTATING_OPERATIONS, SLIDES_COM_OPERATIONS
-
-
-class SlidesAdapter(Protocol):
-    def inspect(self, target: Path, *, render_dir: Path | None = None) -> dict[str, Any]: ...
-
-    def apply(self, plan: Plan, *, dry_run: bool) -> dict[str, Any]: ...
-
-
-class UnavailableSlidesAdapter:
-    def inspect(self, target: Path, *, render_dir: Path | None = None) -> dict[str, Any]:
-        raise BackendUnavailableError("slides")
-
-    def apply(self, plan: Plan, *, dry_run: bool) -> dict[str, Any]:
-        raise BackendUnavailableError("slides")
 
 
 class PowerPointComAdapter:

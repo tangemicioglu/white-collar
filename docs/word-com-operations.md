@@ -1,6 +1,6 @@
 # Word COM operation coverage
 
-The opt-in `--backend com` Word adapter covers the finite live-operation
+The `--backend com` Word adapter is the only Word path and covers the finite live-operation
 vocabulary referenced from `word-mcp-live` (MIT, inspected at its `main` branch).
 The names are semantic white-collar plan operations; they are not exposed COM
 method names and there is no arbitrary dispatch escape hatch.
@@ -42,9 +42,9 @@ allows `review` mutation plans with save-as. A mutation plan must use `review`
 with save-as or `edit` with an explicit in-place snapshot. The COM adapter
 creates one Word undo record per semantic operation.
 
-The adapter is intentionally not the default runtime. The default local backend
-continues to use Office-free OOXML for the narrow `replace_text` vertical slice,
-which keeps tests and automation usable without Word.
+This is the only Word adapter exposed by the CLI. The repository's normal tests
+use fake COM objects at this boundary so they can run without Word, while the
+`--run-real-word` gate exercises the same adapter against a real Word instance.
 
 `tests/test_word_com_real.py` is the live verification harness. With Word
 installed, `python -m pytest -q --run-real-word` creates a disposable real

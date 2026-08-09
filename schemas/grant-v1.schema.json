@@ -16,7 +16,7 @@
         "required": ["app", "backend", "policy", "capabilities", "targets"],
         "properties": {
           "app": {"enum": ["word", "slides", "mail"]},
-          "backend": {"enum": ["local", "com"]},
+          "backend": {"const": "com"},
           "policy": {"enum": ["read-only", "review", "edit", "send"]},
           "capabilities": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
           "targets": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}

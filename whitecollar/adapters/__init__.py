@@ -1,16 +1,13 @@
-from .mail import MailAdapter, UnavailableMailAdapter
+from .protocols import MailAdapter, SlidesAdapter, WordAdapter
 from .outlook import OutlookComAdapter
-from .slides import PowerPointComAdapter, SlidesAdapter, UnavailableSlidesAdapter
-from .word import OoxmlWordAdapter, WordAdapter
+from .slides import PowerPointComAdapter
 from .word_com import Win32WordComAdapter
 
 __all__ = [
     "MailAdapter",
-    "OoxmlWordAdapter",
     "OutlookComAdapter",
+    "PowerPointComAdapter",
     "SlidesAdapter",
-    "UnavailableMailAdapter",
-    "UnavailableSlidesAdapter",
     "WordAdapter",
     "Win32WordComAdapter",
 ]

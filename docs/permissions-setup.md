@@ -41,8 +41,8 @@ Profiles are bounded by application:
 
 | Application | Profiles | Scope |
 | --- | --- | --- |
-| Word | `disabled`, `read-only`, `review`, `edit` | local and COM Word workflows |
-| PowerPoint | `disabled`, `read-only`, `review`, `edit` | local and COM PowerPoint workflows |
+| Word | `disabled`, `read-only`, `review`, `edit` | live Word COM workflows |
+| PowerPoint | `disabled`, `read-only`, `review`, `edit` | live PowerPoint COM workflows |
 | Outlook | `disabled`, `read-only`, `review`, `edit`, `send` | current Outlook mailbox |
 
 Outlook setup uses the explicit `mailbox` scope. That scope covers message IDs
@@ -60,5 +60,5 @@ white-collar permissions grant --app mail --backend com --policy send `
 Setup replaces owner grants for the applications selected in that run and
 preserves owner grants for unselected applications. `disabled` removes owner
 grants for that application. Word and PowerPoint still retain their built-in
-review-level defaults for local and COM workflows; those defaults are not
-removed by setup.
+review-level defaults for COM workflows; those defaults are not removed by
+setup.

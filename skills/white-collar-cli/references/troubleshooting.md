@@ -12,9 +12,8 @@ Office, open documents, or read mail.
 
 ## Common results
 
-- `backend_unavailable`: the selected backend is not available. Use the local
-  Word path, install the `office` extra, or run on Windows with the required
-  Office application installed.
+- `backend_unavailable`: the COM backend is not available. Install the `office`
+  extra and run on Windows with the required Office application installed.
 - `authority_denied`: the requested capability or exact target is not granted.
   Do not modify the plan to evade it; ask the human owner if they want to run
   the appropriate interactive setup/grant.

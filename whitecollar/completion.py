@@ -23,7 +23,7 @@ POWERSHELL_COMPLETION = textwrap.dedent(
         } elseif ($tokens[-1] -eq '--policy') {
             if ($tokens[0] -eq 'setup') { $options = $setupPolicy } else { $options = $policy }
         } elseif ($tokens[-1] -eq '--backend') {
-            $options = @('local', 'com')
+            $options = @('com')
         } elseif ($tokens[-1] -eq '--app') {
             $options = @('word', 'slides', 'mail')
         } elseif ($tokens[-1] -eq '--preset') {

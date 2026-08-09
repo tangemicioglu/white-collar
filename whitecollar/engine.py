@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .adapters import MailAdapter, OoxmlWordAdapter, OutlookComAdapter, PowerPointComAdapter, SlidesAdapter, UnavailableMailAdapter, UnavailableSlidesAdapter, Win32WordComAdapter, WordAdapter
+from .adapters import MailAdapter, OutlookComAdapter, PowerPointComAdapter, SlidesAdapter, Win32WordComAdapter, WordAdapter
 from .authority import Authority
 from .errors import ValidationError
 from .models import Plan
@@ -19,17 +19,8 @@ class RuntimeAdapters:
     mail: MailAdapter
 
     @classmethod
-    def local(
-        cls,
-        *,
-        word_backend: str = "local",
-        slides_backend: str = "local",
-        mail_backend: str = "local",
-    ) -> "RuntimeAdapters":
-        word = Win32WordComAdapter() if word_backend == "com" else OoxmlWordAdapter()
-        slides = PowerPointComAdapter() if slides_backend == "com" else UnavailableSlidesAdapter()
-        mail = OutlookComAdapter() if mail_backend == "com" else UnavailableMailAdapter()
-        return cls(word, slides, mail)
+    def live(cls) -> "RuntimeAdapters":
+        return cls(Win32WordComAdapter(), PowerPointComAdapter(), OutlookComAdapter())
 
 
 def inspect_document(
@@ -39,7 +30,7 @@ def inspect_document(
     adapters: RuntimeAdapters,
     *,
     render_dir: Path | None = None,
-    backend: str = "local",
+    backend: str = "com",
     authority: Authority | None = None,
 ) -> dict[str, Any]:
     if not target.is_absolute():
@@ -72,7 +63,7 @@ def apply_plan(
     dry_run: bool,
     adapters: RuntimeAdapters,
     authority: Authority | None = None,
-    backend: str = "local",
+    backend: str = "com",
 ) -> dict[str, Any]:
     authorize_plan(plan, dry_run=dry_run, authority=authority, backend=backend)
     if plan.app == "word":
@@ -89,7 +80,7 @@ def search_mail(
     policy: str,
     adapters: RuntimeAdapters,
     folder: str = "Inbox",
-    backend: str = "local",
+    backend: str = "com",
     authority: Authority | None = None,
 ) -> list[dict[str, Any]]:
     require_capability(policy, "mail.metadata.read")
@@ -108,7 +99,7 @@ def read_mail(
     policy: str,
     adapters: RuntimeAdapters,
     include_body: bool = False,
-    backend: str = "local",
+    backend: str = "com",
     authority: Authority | None = None,
 ) -> dict[str, Any]:
     if not message_id.strip():

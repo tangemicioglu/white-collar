@@ -11,32 +11,28 @@ review and local use; no Python package release is currently provided.
 
 ## What works today
 
-The Word vertical slice is usable end to end on `.docx` files without Microsoft
-Office installed:
+The supported runtime is Windows with desktop Microsoft Office installed. Word,
+PowerPoint, and Outlook all use their finite semantic COM adapters; there is no
+raw OOXML or local mailbox backend in the public CLI:
 
-* `word inspect` returns document text, counts, size, and SHA-256.
-* `word apply --plan ... --dry-run` validates the plan and reports exact matches
-  without writing.
-* `word apply --plan ...` replaces text in document, header, and footer XML. It
-  either writes a new file or edits in place after creating a named snapshot.
-* An optional target SHA-256 prevents a stale plan from changing a newer file.
-* Existing save-as and snapshot paths are never overwritten.
+* `word inspect` opens a closed document read-only when needed and returns Word
+  text, counts, size, and metadata.
+* `word apply --plan ...` and `word replace ...` operate through Word's live
+  semantic range, formatting, comment, revision, layout, and save operations.
+* `slides inspect` and `slides apply --plan ...` operate through PowerPoint COM,
+  including native slide rendering with `Slide.Export`.
+* `mail search`, `mail read`, and bounded mail writes operate through Outlook
+  Classic COM only; Outlook remains disabled until an explicit owner grant.
+* Save-as, snapshots, target hashes, dry-runs, policy checks, and validation are
+  shared infrastructure around those live Office adapters.
 
-Text replacement currently matches within individual OOXML text nodes. Word may
-split visually continuous text into multiple nodes when formatting changes, so a
-phrase crossing such a boundary is reported as unmatched rather than rewritten.
-
-PowerPoint has an opt-in real COM backend with a finite semantic operation
-catalog. It requires Windows, PowerPoint, and the optional `office` dependencies;
-the default local runtime remains Office-free and returns a structured
-`backend_unavailable` result for slides. Outlook is still a narrow, mockable
-adapter with an opt-in Outlook Classic COM backend; bounded mailbox writes are
-available only under an explicit human grant, and message-body reads require
-an explicit sensitive-read policy.
+The COM adapters are finite semantic surfaces, not arbitrary COM dispatchers.
+Their app-specific operation catalogs are documented in `docs/`.
 
 ## Setup
 
-Python 3.11 or newer is required.
+Windows, desktop Word/PowerPoint/Outlook as applicable, and Python 3.11 or newer
+are required for live use.
 
 ```powershell
 python -m venv .venv
@@ -45,9 +41,8 @@ python -m pip install -e ".[dev]"
 python -m pytest -q
 ```
 
-The editable install creates the `white-collar` command. The default Word adapter
-uses only the Python standard library; `pywin32` and Microsoft Office are not
-required. Install the optional COM dependencies on Windows for the live backend:
+The editable install creates the `white-collar` command. Install the Office
+dependencies before using the CLI against real files:
 
 ```powershell
 python -m pip install -e ".[office]"
@@ -97,11 +92,11 @@ white-collar completions powershell | Out-String | Invoke-Expression
 white-collar permissions show
 white-collar permissions show --redacted
 white-collar permissions show --policy review
-white-collar permissions check --capability word.write.save_as --policy review --backend local --target C:\work\brief.docx
+white-collar permissions check --capability word.write.save_as --policy review --backend com --target C:\work\brief.docx
 white-collar permissions check --capability mail.body.read --policy review --backend com --target MESSAGE_ID
 
 # Human owner only: the agent must ask a human to run and confirm this.
-white-collar permissions grant --app word --backend local --policy review --target C:\work\brief.docx --target C:\work\brief-reviewed.docx
+white-collar permissions grant --app word --backend com --policy review --target C:\work\brief.docx --target C:\work\brief-reviewed.docx
 white-collar permissions grant --app mail --backend com --policy review --capability mail.metadata.read --target mailbox
 white-collar permissions grant --app mail --backend com --policy review --capability mail.body.read --target MESSAGE_ID
 white-collar permissions grant --app mail --backend com --policy review --capability mail.write.state --target MESSAGE_ID
@@ -181,26 +176,22 @@ it is never an authority grant.
 The `send` level is Outlook-only and applies only to sending an existing draft;
 it is separate from `edit` and requires the `mail.write.send` capability.
 
-The CLI loads owner grants from protected OS credential storage, not from a
-JSON configuration file. On Windows this is the native Windows Credential
-Manager; on other platforms an installed OS-keyring backend may be used. There
-is no plaintext-file fallback, no `--authority` path, and no checked-in grant
-file for an agent or human to edit. Word and PowerPoint have a built-in
-review-level grant for local and COM workflows: reads, dry-runs, and save-as
-writes work by default. In-place replacement, screen capture, and Outlook COM
-remain disabled until explicitly granted by the human owner.
+The CLI loads owner grants from Windows Credential Manager, not from a JSON
+configuration file. There is no plaintext-file fallback, no `--authority` path,
+and no checked-in grant file for an agent or human to edit. Word and PowerPoint
+have a built-in review-level grant for their COM workflows: reads, dry-runs, and
+save-as writes work by default. In-place replacement, screen capture, and
+Outlook COM remain disabled until explicitly granted by the human owner.
 
 The permission layer maps finite app operations to a smaller shared capability
 vocabulary. `white-collar permissions show` exposes that versioned vocabulary;
 `permissions check` checks a requested profile against the active owner grant
 without invoking an Office adapter. Plans cannot add grants to themselves.
-The built-in Word/PowerPoint review grant is intentionally broader for a smooth
-local authoring workflow, but it still cannot replace an existing target.
+The built-in Word/PowerPoint review grant is intentionally broad for a smooth
+live Office authoring workflow, but it still cannot replace an existing target.
 Additional owner grants are exact-target records: file writes require the source and
 output/snapshot paths to be granted, and message-body access requires the
-specific message target. The default mail profile can search metadata only
-through the unavailable local stub; Outlook COM requires a separate explicit
-owner grant.
+specific message target. Outlook COM requires a separate explicit owner grant.
 
 `permissions grant` and `permissions revoke` are deliberately human-owner-only.
 In an interactive terminal they show a human-readable summary and use a normal
@@ -229,12 +220,13 @@ that arbitrary code already running as the same Windows user cannot access that
 user's credentials or automate a confirmation UI. Stronger isolation requires a
 separate OS account, broker process, or enterprise endpoint policy.
 
-Outlook Classic is an opt-in COM backend: install the `office` extra and use
-`--backend com`. Its narrow search/read behavior and supported standard folders
-are documented in [the Outlook COM adapter catalog](docs/outlook-com-operations.md).
-The default backend remains Office-free and returns `backend_unavailable`.
+Outlook Classic is a COM-only backend: install the `office` extra and use
+`--backend com` (the only accepted backend). Its narrow search/read behavior and
+supported standard folders are documented in [the Outlook COM adapter
+catalog](docs/outlook-com-operations.md). The authority layer keeps it disabled
+until a human owner enables it.
 
-The opt-in COM backends cover the finite Word and PowerPoint semantic operation
+The COM adapters cover the finite Word and PowerPoint semantic operation
 vocabularies documented in [the Word COM operation catalog](docs/word-com-operations.md)
 and [the PowerPoint COM operation catalog](docs/powerpoint-com-operations.md).
 They require the target file to already be open in the corresponding Office
@@ -243,11 +235,13 @@ read-only, and `slides inspect --backend com --render-dir <dir>` uses
 PowerPoint's native `Slide.Export` to write one clean PNG per slide; it does not
 require `pdf2image`. Word inspection can likewise open a closed target read-only,
 export it through Word's native PDF renderer, and rasterize pages with the system
-`pdftoppm` command. The default backends remain Office-free.
+`pdftoppm` command. All three public adapter paths are COM-backed.
 
-`--dry-run` performs real parsing, targeting, hash checks, and match discovery but
-does not create an output or snapshot. A live Word apply fails closed if an
-operation matches no text, the target hash changed, or an output path exists.
+`--dry-run` performs plan, policy, targeting, hash, and authority validation but
+does not create an output, snapshot, or mailbox change. The COM adapter reports
+the semantic operations it would execute; it does not mutate the live Office
+application. A live Word apply fails closed if the target is not open, the
+target hash changed, or an output path exists.
 
 ## Scope and non-goals
 
@@ -270,7 +264,7 @@ particular, no `ppt-mcp` source is included.
 * `whitecollar/` — CLI, shared policy/schema code, and app adapter contracts.
 * `schemas/` — versioned JSON Schema documents for plans and results.
 * `tests/fixtures/` — fixture plans.
-* `tests/` — Office-free unit, integration, and CLI smoke tests.
+* `tests/` — Office-free policy/CLI tests plus opt-in real Office COM gates.
 
 Run the complete review gate with:
 
@@ -292,8 +286,8 @@ boundary. It asserts operation-specific postconditions (document text,
 formatting, tables, lists, headings, revisions, comments, fields, images,
 sections, properties, and deletion), validates every snapshot as a reopenable
 Word file, and captures a real Word-window screenshot after each mutation.
-It is intentionally separate because Office is not required for the normal
-test suite.
+It is intentionally separate because the normal policy/CLI test suite uses fake
+COM objects and does not require Office.
 
 To retain the live evidence instead of putting it under pytest's temporary
 directory, set an artifact directory before running the live gate:
@@ -319,7 +313,8 @@ text operations, slide lifecycle, formatting, shapes, images, backgrounds,
 duplication, ordering, notes, size, save, and screen capture. It checks each
 operation's postcondition, reopens every snapshot in PowerPoint, and retains
 native PowerPoint-window screenshots plus PowerPoint-exported slide renders.
-The normal review gate does not require Office. The test uses PowerPoint's native
+The normal review gate does not require Office because it uses fake COM objects
+at the adapter boundary. The test uses PowerPoint's native
 slide export for render inspection when the optional presentation helper's PDF
 rasterizer is unavailable.
 

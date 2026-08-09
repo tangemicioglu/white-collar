@@ -3,7 +3,7 @@
 The permission vocabulary is deliberately smaller than the adapter vocabularies.
 Plans can contain only finite semantic operations; this module maps those
 operations to a handful of capabilities that are shared across applications.
-It is an authorization layer for local Office actions, not an OAuth scope or a
+It is an authorization layer for live Office actions, not an OAuth scope or a
 generic COM security surface.
 """
 

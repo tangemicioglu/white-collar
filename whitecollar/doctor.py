@@ -49,15 +49,12 @@ def diagnose(
         },
         "backends": {
             "word": {
-                "local": {"status": "ready", "details": "OOXML adapter; no Office required"},
                 "com": com_status("word"),
             },
             "slides": {
-                "local": {"status": "stub", "reason": "PowerPoint local backend is not implemented"},
                 "com": com_status("slides"),
             },
             "mail": {
-                "local": {"status": "stub", "reason": "mail local backend is intentionally unavailable"},
                 "com": com_status("mail"),
             },
         },

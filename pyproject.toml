@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "white-collar"
 version = "0.1.0"
-description = "A narrow, agent-friendly local Office CLI"
+description = "A narrow, agent-friendly Windows Office COM CLI"
 requires-python = ">=3.11"
 readme = "README.md"
 license = {file = "LICENSE"}

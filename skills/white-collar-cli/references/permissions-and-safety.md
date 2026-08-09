@@ -13,8 +13,8 @@ capability, and exact target before an adapter is called.
 | `edit` | In-place Office writes with a snapshot; organize mail; compose drafts. |
 | `send` | Send an existing Outlook draft only. |
 
-Word and PowerPoint have built-in review-level defaults for the ordinary local
-and save-as authoring path. In-place edits, screen capture, and some live COM
+Word and PowerPoint have built-in review-level defaults for their live COM
+save-as authoring path. In-place edits, screen capture, and some other live COM
 actions may require additional authority. Outlook COM and its writes are
 disabled by default.
 

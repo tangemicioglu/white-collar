@@ -1,14 +1,14 @@
 ---
 name: white-collar-cli
-description: Use the white-collar local Office CLI for bounded Word, PowerPoint, and Outlook workflows. Apply this skill when an agent needs to inspect, render, edit, search, read, draft, or send Office content through white-collar, including choosing a command, plan, policy, backend, target, dry-run, or permission-safe workflow.
+description: Use the white-collar Windows Office COM CLI for bounded Word, PowerPoint, and Outlook workflows. Apply this skill when an agent needs to inspect, render, edit, search, read, draft, or send Office content through white-collar, including choosing a command, plan, policy, backend, target, dry-run, or permission-safe workflow.
 ---
 
 # White-Collar CLI
 
-Use this skill when the task is to operate on a local `.docx`, `.pptx`, or
+Use this skill when the task is to operate on a Windows `.docx`, `.pptx`, or
 Outlook Classic mailbox through the `white-collar` command. It teaches the
-small semantic command surface and the safety boundary; it is not a guide to
-arbitrary COM automation or to upstream MCP servers.
+small semantic COM command surface and the safety boundary; it is not a guide
+to arbitrary COM automation or to upstream MCP servers.
 
 ## First pass
 
@@ -30,7 +30,7 @@ arbitrary COM automation or to upstream MCP servers.
 
 ## Default policy and authority
 
-- Word/PowerPoint: `read-only` reads; `review` save-as writes; `edit` in-place writes with a snapshot. The built-in review default supports the normal local authoring path, but live COM, screen capture, and in-place edits can still need authority.
+- Word/PowerPoint: `read-only` reads; `review` save-as writes; `edit` in-place writes with a snapshot. All operations use the live COM adapters; screen capture and in-place edits can still need authority.
 - Outlook: `read-only` is the default. Metadata search/read is read-only; body reads are sensitive and need `review` or `edit`; mark read/unread is `review`; move/delete and draft composition are `edit`; sending is `send` only.
 - A plan's policy is never authority. Do not bypass a denial by changing the plan, backend, target, or a local file.
 - Use exact file targets for Office work and exact message IDs for mail work. `mailbox` is a deliberately broad human-configured scope, not an agent shortcut.

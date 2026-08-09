@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import io
+import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
 from conftest import write_plan
-from whitecollar.adapters.word import OoxmlWordAdapter
 from whitecollar.authority import Authority, MemoryCredentialStore, load_authority, make_grant, save_grant
 from whitecollar import cli
 from whitecollar.cli import main
@@ -21,6 +22,21 @@ class FakeSlides:
 
     def apply(self, plan, *, dry_run):
         return {"changes": [{"operation": 0, "matches": 3}], "written": not dry_run}
+
+
+class FakeWord:
+    def inspect(self, target, *, render_dir=None):
+        return {"backend": "word-com", "text": "Draft", "render_dir": str(render_dir) if render_dir else None}
+
+    def apply(self, plan, *, dry_run):
+        if not dry_run:
+            source = plan.target.path
+            if plan.write.mode == "save-as":
+                Path(plan.write.path).write_bytes(b"fake-word-output")
+            elif plan.write.mode == "in-place":
+                shutil.copy2(source, plan.write.snapshot)
+                Path(source).write_bytes(b"fake-word-output")
+        return {"changes": [{"operation": 0, "matches": 1}], "written": not dry_run}
 
 
 class FakeWordRender:
@@ -53,7 +69,7 @@ class FakeMail:
 
 
 def adapters() -> RuntimeAdapters:
-    return RuntimeAdapters(OoxmlWordAdapter(), FakeSlides(), FakeMail())
+    return RuntimeAdapters(FakeWord(), FakeSlides(), FakeMail())
 
 
 def output(capsys):
@@ -95,7 +111,8 @@ def test_doctor_is_machine_readable_and_does_not_need_office(capsys):
     value = output(capsys)
     assert value["command"] == "doctor"
     assert value["policy"] == "read-only"
-    assert value["data"]["backends"]["word"]["local"]["status"] == "ready"
+    assert "local" not in value["data"]["backends"]["word"]
+    assert value["data"]["backends"]["word"]["com"]["status"] in {"dependency-ready", "unavailable"}
     assert value["data"]["permissions"]["owner_grants"] == 0
     assert value["data"]["permissions"]["targets"].startswith("redacted")
 
@@ -212,7 +229,7 @@ def test_mail_search_and_read_default_to_read_only(capsys):
 
 def test_mail_shortcuts_compile_to_semantic_plans(capsys):
     fake_mail = FakeMail()
-    runtime = RuntimeAdapters(OoxmlWordAdapter(), FakeSlides(), fake_mail)
+    runtime = RuntimeAdapters(FakeWord(), FakeSlides(), fake_mail)
     assert main(
         [
             "mail",
@@ -393,7 +410,7 @@ def test_agent_permission_change_requires_human_terminal(tmp_path, capsys):
             "--app",
             "word",
             "--backend",
-            "local",
+            "com",
             "--policy",
             "review",
             "--target",
@@ -530,5 +547,5 @@ def test_module_entrypoint_is_machine_readable():
     value = json.loads(completed.stdout)
     assert completed.returncode == 2
     assert value["schema"] == "white-collar.result/v1"
-    assert value["error"]["code"] == "backend_unavailable"
+    assert value["error"]["code"] == "policy_denied"
     assert completed.stderr == ""
