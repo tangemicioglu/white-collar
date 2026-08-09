@@ -1,14 +1,11 @@
 # Real Office review artifacts
 
-These are the final post-operation files produced by the live Office verification
-harness on August 8, 2026. They are actual files opened, mutated, saved, and
-reopened by Microsoft Word and PowerPoint; they are not fake fixtures.
+The live verification harness produces real `.docx` and `.pptx` evidence, but
+those files are local-only. Office files can carry personal author metadata and
+the repository also uses source-derived presentation templates during local
+review, so binary artifacts are ignored and are not published with the source.
 
-* `white-collar-word-real-v0.1.docx` — final Word document after the registered
-  live operation sequence.
-* `white-collar-powerpoint-real-v0.1.pptx` — final PowerPoint deck after the
-  registered live operation sequence.
-
-The ignored `.real-word-artifacts/` and `.real-powerpoint-artifacts/` directories
-retain the intermediate snapshots and screenshots used by the tests. These two
-files are the concise handoff artifacts.
+To reproduce the evidence on a Windows machine with Office installed, follow
+the live Word and PowerPoint test commands in the main README. The ignored
+`.real-word-artifacts/` and `.real-powerpoint-artifacts/` directories retain
+screenshots and snapshots for local review.

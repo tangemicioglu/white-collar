@@ -7,3 +7,9 @@ dist/
 build/
 .real-word-artifacts/
 .real-powerpoint-artifacts/
+
+# Local Office evidence and source-derived templates may contain personal or
+# proprietary document metadata. Keep them out of published repositories.
+artifacts/office/*.docx
+artifacts/office/*.pptx
+artifacts/templates/*.potx

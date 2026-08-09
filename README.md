@@ -6,8 +6,8 @@ Outlook adapters shared targeting, policy checks, versioned plans and results,
 dry-runs, save-as/snapshot rules, and validation while keeping each application's
 commands app-specific.
 
-This repository is an early, local v0.1 implementation. It is not published as a
-package and has no remote repository configured.
+This repository is an early v0.1 implementation. It is published as source for
+review and local use; no Python package release is currently provided.
 
 ## What works today
 
@@ -327,5 +327,10 @@ The PowerPoint catalog is intentionally semantic and finite. The CLI does not
 expose arbitrary COM methods or import `ppt-mcp` source; that project may inform
 future behavior, but it is not a public command model or a copied backend.
 
-The committed [real Office review artifacts](artifacts/office/README.md) include
-one final `.docx` and one final `.pptx` produced by the live operation harness.
+Local live Office evidence is intentionally not published because Office files
+can carry personal author metadata or source-deck content. See the
+[artifact note](artifacts/office/README.md) for how to reproduce it locally.
+
+## License
+
+White-Collar is released under the [MIT License](LICENSE).
