@@ -65,6 +65,7 @@ white-collar word apply --plan C:\work\live.plan.json --backend com
 
 white-collar slides inspect C:\work\deck.pptx
 white-collar slides inspect C:\work\deck.pptx --backend com
+white-collar slides inspect C:\work\deck.pptx --backend com --render-dir C:\work\deck-rendered
 white-collar slides apply --plan C:\work\slides.plan.json --dry-run
 white-collar slides apply --plan C:\work\slides.plan.json --backend com
 
@@ -135,7 +136,10 @@ The opt-in COM backends cover the finite Word and PowerPoint semantic operation
 vocabularies documented in [the Word COM operation catalog](docs/word-com-operations.md)
 and [the PowerPoint COM operation catalog](docs/powerpoint-com-operations.md).
 They require the target file to already be open in the corresponding Office
-application. The default backends remain Office-free.
+application for mutation plans. PowerPoint inspection can open a closed target
+read-only, and `slides inspect --backend com --render-dir <dir>` uses
+PowerPoint's native `Slide.Export` to write one clean PNG per slide; it does not
+require `pdf2image`. The default backends remain Office-free.
 
 `--dry-run` performs real parsing, targeting, hash checks, and match discovery but
 does not create an output or snapshot. A live Word apply fails closed if an

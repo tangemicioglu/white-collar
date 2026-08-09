@@ -11,8 +11,8 @@ from whitecollar.engine import RuntimeAdapters
 
 
 class FakeSlides:
-    def inspect(self, target):
-        return {"slides": 7, "title": "Review"}
+    def inspect(self, target, *, render_dir=None):
+        return {"slides": 7, "title": "Review", "render_dir": str(render_dir) if render_dir else None}
 
     def apply(self, plan, *, dry_run):
         return {"changes": [{"operation": 0, "matches": 3}], "written": not dry_run}
@@ -59,6 +59,14 @@ def test_slides_commands_use_only_slides_adapter(tmp_path, capsys):
     plan = write_plan(tmp_path / "plan.json", deck, tmp_path / "new.pptx", app="slides")
     assert main(["slides", "apply", "--plan", str(plan), "--dry-run"], adapters=adapters()) == 0
     assert output(capsys)["changes"][0]["matches"] == 3
+
+
+def test_slides_inspect_render_dir_smoke(tmp_path, capsys):
+    deck = tmp_path / "deck.pptx"
+    render_dir = tmp_path / "rendered"
+    assert main(["slides", "inspect", str(deck), "--render-dir", str(render_dir)], adapters=adapters()) == 0
+    value = output(capsys)
+    assert value["data"]["render_dir"] == str(render_dir.resolve())
 
 
 def test_mail_search_and_read_default_to_read_only(capsys):

@@ -23,14 +23,25 @@ class RuntimeAdapters:
         return cls(word, slides, UnavailableMailAdapter())
 
 
-def inspect_document(app: str, target: Path, policy: str, adapters: RuntimeAdapters) -> dict[str, Any]:
+def inspect_document(
+    app: str,
+    target: Path,
+    policy: str,
+    adapters: RuntimeAdapters,
+    *,
+    render_dir: Path | None = None,
+) -> dict[str, Any]:
     require_read(policy)
     if not target.is_absolute():
         raise ValidationError("target must be an absolute path")
     if app == "word":
+        if render_dir is not None:
+            raise ValidationError("render_dir is only supported for slides")
         return adapters.word.inspect(target)
     if app == "slides":
-        return adapters.slides.inspect(target)
+        if render_dir is not None and not render_dir.is_absolute():
+            raise ValidationError("render_dir must be an absolute path")
+        return adapters.slides.inspect(target, render_dir=render_dir)
     raise ValidationError(f"unsupported app: {app}")
 
 

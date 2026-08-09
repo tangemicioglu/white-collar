@@ -12,6 +12,12 @@ method names; there is no arbitrary dispatch escape hatch.
 | Graphics | `slides_live_add_shape`, `slides_live_add_image`, `slides_live_set_background` |
 | Notes/save/capture | `slides_live_set_notes`, `slides_live_save`, `slides_screen_capture` |
 
+`slides inspect --backend com --render-dir <directory>` is a separate
+read-only inspection option, not a plan operation. It opens a closed target
+read-only when needed and uses PowerPoint's native `Slide.Export` to write
+`slide-1.png`, `slide-2.png`, and so on. Existing output files are never
+overwritten.
+
 Example PowerPoint plan operation:
 
 ```json

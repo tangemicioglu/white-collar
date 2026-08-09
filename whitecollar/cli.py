@@ -29,6 +29,8 @@ def build_parser() -> argparse.ArgumentParser:
         inspect.add_argument("target")
         inspect.add_argument("--policy", choices=("read-only", "review", "edit"), default="read-only")
         inspect.add_argument("--backend", choices=("local", "com"), default="local")
+        if app == "slides":
+            inspect.add_argument("--render-dir", help="write one native PowerPoint PNG per slide")
         apply = commands.add_parser("apply")
         apply.add_argument("--plan", required=True)
         apply.add_argument("--dry-run", action="store_true")
@@ -66,7 +68,8 @@ def _run(args: argparse.Namespace, adapters: RuntimeAdapters) -> dict[str, Any]:
     command = _command_name(args)
     if args.app in {"word", "slides"} and args.action == "inspect":
         target = Path(args.target).resolve()
-        data = inspect_document(args.app, target, args.policy, adapters)
+        render_dir = Path(args.render_dir).resolve() if getattr(args, "render_dir", None) else None
+        data = inspect_document(args.app, target, args.policy, adapters, render_dir=render_dir)
         return result(ok=True, command=command, policy=args.policy, dry_run=False, target=str(target), data=data)
     if args.app in {"word", "slides"} and args.action == "apply":
         plan = _load_plan(args.plan)

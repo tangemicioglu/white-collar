@@ -11,13 +11,13 @@ from ..slides_ops import SLIDES_COM_MUTATING_OPERATIONS, SLIDES_COM_OPERATIONS
 
 
 class SlidesAdapter(Protocol):
-    def inspect(self, target: Path) -> dict[str, Any]: ...
+    def inspect(self, target: Path, *, render_dir: Path | None = None) -> dict[str, Any]: ...
 
     def apply(self, plan: Plan, *, dry_run: bool) -> dict[str, Any]: ...
 
 
 class UnavailableSlidesAdapter:
-    def inspect(self, target: Path) -> dict[str, Any]:
+    def inspect(self, target: Path, *, render_dir: Path | None = None) -> dict[str, Any]:
         raise BackendUnavailableError("slides")
 
     def apply(self, plan: Plan, *, dry_run: bool) -> dict[str, Any]:
@@ -39,10 +39,17 @@ class PowerPointComAdapter:
     def _get_app(self) -> Any:
         return self._app_factory()
 
-    def inspect(self, target: Path) -> dict[str, Any]:
+    def inspect(self, target: Path, *, render_dir: Path | None = None) -> dict[str, Any]:
         app = self._get_app()
-        presentation = _find_presentation(app, str(target))
-        return self._get_info(presentation) | {"backend": "powerpoint-com"}
+        presentation, opened_here = _find_or_open_for_inspect(app, target)
+        try:
+            data = self._get_info(presentation) | {"backend": "powerpoint-com"}
+            if render_dir is not None:
+                data["renders"] = _render_slides(presentation, render_dir)
+            return data
+        finally:
+            if opened_here:
+                presentation.Close()
 
     def apply(self, plan: Plan, *, dry_run: bool) -> dict[str, Any]:
         if dry_run and all(
@@ -345,6 +352,51 @@ def _find_presentation(app: Any, target: str) -> Any:
         if target in {source, str(_safe_value(presentation, "Name", ""))} or (source and Path(source).resolve() == wanted):
             return presentation
     raise ValidationError("target PowerPoint presentation is not open", details={"target": target})
+
+
+def _find_or_open_for_inspect(app: Any, target: Path) -> tuple[Any, bool]:
+    try:
+        return _find_presentation(app, str(target)), False
+    except ValidationError:
+        if not target.is_file():
+            raise
+        try:
+            presentation = app.Presentations.Open(
+                FileName=str(target),
+                ReadOnly=True,
+                Untitled=False,
+                WithWindow=False,
+            )
+        except Exception as exc:
+            raise ValidationError(
+                "PowerPoint could not open the target for inspection",
+                details={"target": str(target), "reason": str(exc)},
+            ) from exc
+        return presentation, True
+
+
+def _render_slides(presentation: Any, render_dir: Path) -> dict[str, Any]:
+    output_dir = render_dir.resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    width, height = 1280, 720
+    files: list[str] = []
+    count = int(_safe_value(presentation.Slides, "Count", 0))
+    outputs = [(index, output_dir / f"slide-{index}.png") for index in range(1, count + 1)]
+    existing = [str(output) for _, output in outputs if output.exists()]
+    if existing:
+        raise ValidationError("render output already exists", details={"paths": existing})
+    for index, output in outputs:
+        try:
+            _slide(presentation, index).Export(str(output), "PNG", width, height)
+        except Exception as exc:
+            raise ValidationError(
+                "PowerPoint could not export a slide",
+                details={"slide_index": index, "path": str(output), "reason": str(exc)},
+            ) from exc
+        if not output.is_file():
+            raise ValidationError("PowerPoint did not create the rendered slide", details={"slide_index": index, "path": str(output)})
+        files.append(str(output))
+    return {"directory": str(output_dir), "format": "png", "width": width, "height": height, "files": files}
 
 
 def _find_powerpoint_window(presentation: Any) -> int:
