@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .authority import Authority
 from .errors import PolicyError
 from .models import POLICY_NAMES, Plan
 from .permissions import (
@@ -39,8 +40,10 @@ def require_read(policy: str) -> PolicyProfile:
     return profile
 
 
-def authorize_plan(plan: Plan, *, dry_run: bool) -> PolicyProfile:
+def authorize_plan(plan: Plan, *, dry_run: bool, authority: Authority | None = None) -> PolicyProfile:
     profile = PROFILES[plan.policy]
+    if authority is not None:
+        authority.require_policy(plan.app, plan.policy)
     operations = {operation["op"] for operation in plan.operations}
     if plan.app == "word":
         mutating_operations = WORD_COM_MUTATING_OPERATIONS

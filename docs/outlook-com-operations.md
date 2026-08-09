@@ -4,6 +4,10 @@ The opt-in Outlook backend is intentionally read-only. It uses the current
 user's Outlook Classic MAPI profile through COM and has no send, reply, move,
 delete, mark, or attachment-download operation.
 
+Outlook COM is disabled by default by the authority layer. An owner must
+explicitly enable `mail:com` in the fixed authority file; selecting
+`--backend com` alone cannot enable it.
+
 ## Commands
 
 ```powershell

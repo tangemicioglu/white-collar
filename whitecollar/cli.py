@@ -7,10 +7,11 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from . import __version__
+from .authority import Authority, load_authority
 from .engine import RuntimeAdapters, apply_plan, inspect_document, read_mail, search_mail
 from .errors import ValidationError, WhiteCollarError
 from .models import PLAN_SCHEMA, Plan, result
-from .permissions import catalog, require_capability
+from .permissions import CAPABILITIES, catalog, require_capability
 
 
 class JsonArgumentParser(argparse.ArgumentParser):
@@ -77,17 +78,29 @@ def _command_name(args: argparse.Namespace | None) -> str:
     return ".".join(part for part in (getattr(args, "app", None), getattr(args, "action", None)) if part) or "cli"
 
 
-def _run(args: argparse.Namespace, adapters: RuntimeAdapters) -> dict[str, Any]:
+def _run(args: argparse.Namespace, adapters: RuntimeAdapters, authority: Authority) -> dict[str, Any]:
     command = _command_name(args)
     if args.app == "permissions" and args.action == "show":
-        return result(ok=True, command=command, policy=args.policy, dry_run=False, data=catalog(policy=args.policy))
+        data = catalog(policy=args.policy, authority=authority)
+        data["authority"] = authority.to_dict()
+        return result(ok=True, command=command, policy=args.policy, dry_run=False, data=data)
     if args.app == "permissions" and args.action == "check":
         decision = require_capability(args.policy, args.capability, target=args.target)
+        capability = CAPABILITIES[args.capability]
+        authority.require_policy(capability.app, args.policy)
         return result(ok=True, command=command, policy=args.policy, dry_run=False, target=args.target, data=decision)
     if args.app in {"word", "slides"} and args.action == "inspect":
         target = Path(args.target).resolve()
         render_dir = Path(args.render_dir).resolve() if getattr(args, "render_dir", None) else None
-        data = inspect_document(args.app, target, args.policy, adapters, render_dir=render_dir)
+        data = inspect_document(
+            args.app,
+            target,
+            args.policy,
+            adapters,
+            render_dir=render_dir,
+            backend=args.backend,
+            authority=authority,
+        )
         return result(ok=True, command=command, policy=args.policy, dry_run=False, target=str(target), data=data)
     if args.app in {"word", "slides"} and args.action == "apply":
         plan = _load_plan(args.plan)
@@ -97,7 +110,7 @@ def _run(args: argparse.Namespace, adapters: RuntimeAdapters) -> dict[str, Any]:
                 "plan app does not match command",
                 details={"plan_app": plan.app, "command_app": args.app},
             )
-        data = apply_plan(plan, dry_run=args.dry_run, adapters=adapters)
+        data = apply_plan(plan, dry_run=args.dry_run, adapters=adapters, authority=authority)
         changes = data.pop("changes", [])
         return result(
             ok=True,
@@ -109,7 +122,15 @@ def _run(args: argparse.Namespace, adapters: RuntimeAdapters) -> dict[str, Any]:
             changes=changes,
         )
     if args.app == "mail" and args.action == "search":
-        data = search_mail(args.query, limit=args.limit, policy=args.policy, folder=args.folder, adapters=adapters)
+        data = search_mail(
+            args.query,
+            limit=args.limit,
+            policy=args.policy,
+            folder=args.folder,
+            backend=args.backend,
+            adapters=adapters,
+            authority=authority,
+        )
         return result(ok=True, command=command, policy=args.policy, dry_run=False, data=data)
     if args.app == "mail" and args.action == "read":
         data = read_mail(
@@ -117,15 +138,23 @@ def _run(args: argparse.Namespace, adapters: RuntimeAdapters) -> dict[str, Any]:
             policy=args.policy,
             adapters=adapters,
             include_body=args.include_body,
+            backend=args.backend,
+            authority=authority,
         )
         return result(ok=True, command=command, policy=args.policy, dry_run=False, data=data)
     raise ValidationError("unsupported command")
 
 
-def main(argv: Sequence[str] | None = None, *, adapters: RuntimeAdapters | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    adapters: RuntimeAdapters | None = None,
+    authority: Authority | None = None,
+) -> int:
     parsed: argparse.Namespace | None = None
     try:
         parsed = build_parser().parse_args(argv)
+        active_authority = authority or load_authority()
         response = _run(
             parsed,
             adapters
@@ -134,6 +163,7 @@ def main(argv: Sequence[str] | None = None, *, adapters: RuntimeAdapters | None 
                 slides_backend=getattr(parsed, "backend", "local") if getattr(parsed, "app", None) == "slides" else "local",
                 mail_backend=getattr(parsed, "backend", "local") if getattr(parsed, "app", None) == "mail" else "local",
             ),
+            active_authority,
         )
         exit_code = 0
     except WhiteCollarError as exc:

@@ -88,7 +88,8 @@ white-collar permissions check --capability mail.body.read --policy review --tar
 Mail commands and inspect commands default to `read-only`. Mail search and a
 message metadata read use `mail.metadata.read`; `mail read --include-body`
 requires an explicit `review` or `edit` policy and the `mail.body.read`
-capability. No mail write capability is granted by any v0.1 profile.
+capability, plus owner authority for that policy. No mail write capability is
+granted by any v0.1 profile.
 
 ## Plans
 
@@ -143,14 +144,24 @@ no field for a COM method, object path, macro, or arbitrary Office invocation.
 The policy is embedded in every mutation plan and checked before an adapter is
 called. `review` is intended for agent workflows that produce a new artifact for
 human review. `edit` is the only profile that permits replacing the target, and
-the plan must provide a distinct snapshot path.
+the plan must provide a distinct snapshot path. A plan's policy is a request;
+it is never an authority grant.
+
+The CLI loads an owner-controlled authority file from
+`%APPDATA%\white-collar\authority.json`. If it does not exist, all apps are
+limited to `read-only`, Word and PowerPoint COM reads remain enabled, and
+Outlook COM is disabled. There is no command for an agent to create, edit, or
+replace this file. The owner can start from the checked-in
+[authority example](examples/authority-v1.json), place it at the fixed path,
+and protect it with OS file permissions.
 
 The permission layer maps finite app operations to a smaller shared capability
 vocabulary. `white-collar permissions show` exposes that versioned vocabulary;
-`permissions check` checks a profile without invoking an Office adapter. Plans
-cannot add grants to themselves. File capabilities require an absolute target,
-and message-body access requires a message target. The default mail profile can
-search metadata but does not expose message bodies or attachments.
+`permissions check` checks a requested profile against the active authority
+without invoking an Office adapter. Plans cannot add grants to themselves. File
+capabilities require an absolute target, and message-body access requires a
+message target. The default mail profile can search metadata but does not expose
+message bodies or attachments.
 
 Outlook Classic is an opt-in COM backend: install the `office` extra and use
 `--backend com`. Its narrow search/read behavior and supported standard folders

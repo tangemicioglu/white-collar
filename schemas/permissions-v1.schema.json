@@ -14,6 +14,10 @@
         "items": {"type": "string"}
       }
     },
+    "authority": {
+      "type": "object",
+      "additionalProperties": true
+    },
     "capabilities": {
       "type": "array",
       "items": {
@@ -27,6 +31,8 @@
           "risk": {"enum": ["read", "write", "sensitive", "highly-sensitive", "destructive"]},
           "target": {"enum": ["file", "mailbox", "message"]},
           "profiles": {"type": "array", "items": {"enum": ["read-only", "review", "edit"]}},
+          "profile_granted": {"type": "boolean"},
+          "authority_granted": {"type": "boolean"},
           "granted": {"type": "boolean"}
         }
       }

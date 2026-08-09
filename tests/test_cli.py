@@ -6,6 +6,7 @@ import sys
 
 from conftest import write_plan
 from whitecollar.adapters.word import OoxmlWordAdapter
+from whitecollar.authority import Authority
 from whitecollar.cli import main
 from whitecollar.engine import RuntimeAdapters
 
@@ -45,9 +46,13 @@ def output(capsys):
     return json.loads(capsys.readouterr().out)
 
 
+def invoke(argv, *, adapters):
+    return main(argv, adapters=adapters, authority=Authority.for_testing())
+
+
 def test_word_inspect_smoke(make_docx, tmp_path, capsys):
     target = make_docx(tmp_path / "brief.docx", "Draft")
-    assert main(["word", "inspect", str(target)], adapters=adapters()) == 0
+    assert invoke(["word", "inspect", str(target)], adapters=adapters()) == 0
     value = output(capsys)
     assert value["schema"] == "white-collar.result/v1"
     assert value["command"] == "word.inspect"
@@ -58,7 +63,7 @@ def test_word_inspect_smoke(make_docx, tmp_path, capsys):
 def test_word_apply_dry_run_smoke(make_docx, tmp_path, capsys):
     target = make_docx(tmp_path / "brief.docx", "Draft")
     plan = write_plan(tmp_path / "plan.json", target, tmp_path / "final.docx")
-    assert main(["word", "apply", "--plan", str(plan), "--dry-run"], adapters=adapters()) == 0
+    assert invoke(["word", "apply", "--plan", str(plan), "--dry-run"], adapters=adapters()) == 0
     value = output(capsys)
     assert value["dry_run"] is True
     assert value["changes"][0]["matches"] == 1
@@ -66,17 +71,17 @@ def test_word_apply_dry_run_smoke(make_docx, tmp_path, capsys):
 
 def test_slides_commands_use_only_slides_adapter(tmp_path, capsys):
     deck = tmp_path / "deck.pptx"
-    assert main(["slides", "inspect", str(deck)], adapters=adapters()) == 0
+    assert invoke(["slides", "inspect", str(deck)], adapters=adapters()) == 0
     assert output(capsys)["data"]["slides"] == 7
     plan = write_plan(tmp_path / "plan.json", deck, tmp_path / "new.pptx", app="slides")
-    assert main(["slides", "apply", "--plan", str(plan), "--dry-run"], adapters=adapters()) == 0
+    assert invoke(["slides", "apply", "--plan", str(plan), "--dry-run"], adapters=adapters()) == 0
     assert output(capsys)["changes"][0]["matches"] == 3
 
 
 def test_slides_inspect_render_dir_smoke(tmp_path, capsys):
     deck = tmp_path / "deck.pptx"
     render_dir = tmp_path / "rendered"
-    assert main(["slides", "inspect", str(deck), "--render-dir", str(render_dir)], adapters=adapters()) == 0
+    assert invoke(["slides", "inspect", str(deck), "--render-dir", str(render_dir)], adapters=adapters()) == 0
     value = output(capsys)
     assert value["data"]["render_dir"] == str(render_dir.resolve())
 
@@ -85,34 +90,57 @@ def test_word_inspect_render_dir_smoke(tmp_path, capsys):
     target = tmp_path / "brief.docx"
     render_dir = tmp_path / "rendered"
     runtime = RuntimeAdapters(FakeWordRender(), FakeSlides(), FakeMail())
-    assert main(["word", "inspect", str(target), "--backend", "com", "--render-dir", str(render_dir)], adapters=runtime) == 0
+    assert invoke(["word", "inspect", str(target), "--backend", "com", "--render-dir", str(render_dir)], adapters=runtime) == 0
     value = output(capsys)
     assert value["data"]["render_dir"] == str(render_dir.resolve())
 
 
 def test_mail_search_and_read_default_to_read_only(capsys):
-    assert main(["mail", "search", "--query", "roadmap"], adapters=adapters()) == 0
+    assert invoke(["mail", "search", "--query", "roadmap"], adapters=adapters()) == 0
     searched = output(capsys)
     assert searched["policy"] == "read-only"
     assert searched["data"][0]["id"] == "m-1"
-    assert main(["mail", "read", "--id", "m-1"], adapters=adapters()) == 0
+    assert invoke(["mail", "read", "--id", "m-1"], adapters=adapters()) == 0
     assert "body" not in output(capsys)["data"]
 
 
 def test_mail_backend_and_folder_flags_reach_the_adapter(capsys):
-    assert main(
+    assert invoke(
         ["mail", "search", "--backend", "com", "--folder", "Sent Items", "--query", "roadmap"],
         adapters=adapters(),
     ) == 0
     assert output(capsys)["data"][0]["folder"] == "Sent Items"
 
 
+def test_outlook_backend_is_disabled_by_default(capsys):
+    assert main(
+        ["mail", "search", "--backend", "com", "--query", "roadmap"],
+        adapters=adapters(),
+        authority=Authority.default(),
+    ) == 2
+    value = output(capsys)
+    assert value["error"]["details"]["backend"] == "mail:com"
+
+
+def test_agent_cannot_self_escalate_a_plan_policy(make_docx, tmp_path, capsys):
+    target = make_docx(tmp_path / "brief.docx", "Draft")
+    plan = write_plan(tmp_path / "plan.json", target, tmp_path / "final.docx")
+    assert main(
+        ["word", "apply", "--plan", str(plan), "--dry-run"],
+        adapters=adapters(),
+        authority=Authority.default(),
+    ) == 2
+    value = output(capsys)
+    assert value["error"]["details"]["requested_policy"] == "review"
+    assert value["error"]["details"]["maximum_policy"] == "read-only"
+
+
 def test_mail_body_requires_explicit_sensitive_policy(capsys):
-    assert main(["mail", "read", "--id", "m-1", "--include-body"], adapters=adapters()) == 2
+    assert invoke(["mail", "read", "--id", "m-1", "--include-body"], adapters=adapters()) == 2
     denied = output(capsys)
     assert denied["error"]["code"] == "policy_denied"
     assert denied["error"]["details"]["capability"] == "mail.body.read"
-    assert main(
+    assert invoke(
         ["mail", "read", "--id", "m-1", "--include-body", "--policy", "review"],
         adapters=adapters(),
     ) == 0
@@ -120,20 +148,28 @@ def test_mail_body_requires_explicit_sensitive_policy(capsys):
 
 
 def test_permissions_commands_are_machine_readable(tmp_path, capsys):
-    assert main(["permissions", "show", "--policy", "review"], adapters=adapters()) == 0
+    assert main(
+        ["permissions", "show", "--policy", "review"],
+        adapters=adapters(),
+        authority=Authority.default(),
+    ) == 0
     shown = output(capsys)
     assert shown["data"]["schema"] == "white-collar.permissions/v1"
     assert "mail.body.read" in shown["data"]["profiles"]["review"]
+    mail_body = next(item for item in shown["data"]["capabilities"] if item["name"] == "mail.body.read")
+    assert mail_body["profile_granted"] is True
+    assert mail_body["authority_granted"] is False
+    assert mail_body["granted"] is False
 
     target = str((tmp_path / "brief.docx").resolve())
-    assert main(
+    assert invoke(
         ["permissions", "check", "--policy", "review", "--capability", "word.write.save_as", "--target", target],
         adapters=adapters(),
     ) == 0
     allowed = output(capsys)
     assert allowed["data"]["decision"] == "allow"
 
-    assert main(
+    assert invoke(
         ["permissions", "check", "--capability", "mail.body.read", "--target", "m-1"],
         adapters=adapters(),
     ) == 2
@@ -142,7 +178,7 @@ def test_permissions_commands_are_machine_readable(tmp_path, capsys):
 
 
 def test_cli_validation_errors_are_json(capsys):
-    assert main(["mail", "search", "--query", "x", "--limit", "101"], adapters=adapters()) == 2
+    assert invoke(["mail", "search", "--query", "x", "--limit", "101"], adapters=adapters()) == 2
     value = output(capsys)
     assert value["ok"] is False
     assert value["error"]["code"] == "validation_error"
@@ -151,7 +187,7 @@ def test_cli_validation_errors_are_json(capsys):
 def test_plan_app_must_match_command(make_docx, tmp_path, capsys):
     target = make_docx(tmp_path / "brief.docx", "Draft")
     plan = write_plan(tmp_path / "plan.json", target, tmp_path / "final.docx")
-    assert main(["slides", "apply", "--plan", str(plan), "--dry-run"], adapters=adapters()) == 2
+    assert invoke(["slides", "apply", "--plan", str(plan), "--dry-run"], adapters=adapters()) == 2
     assert output(capsys)["error"]["details"]["plan_app"] == "word"
 
 

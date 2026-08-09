@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .adapters import MailAdapter, OoxmlWordAdapter, OutlookComAdapter, PowerPointComAdapter, SlidesAdapter, UnavailableMailAdapter, UnavailableSlidesAdapter, Win32WordComAdapter, WordAdapter
+from .authority import Authority
 from .errors import ValidationError
 from .models import Plan
 from .permissions import require_capability
@@ -38,9 +39,14 @@ def inspect_document(
     adapters: RuntimeAdapters,
     *,
     render_dir: Path | None = None,
+    backend: str = "local",
+    authority: Authority | None = None,
 ) -> dict[str, Any]:
     if not target.is_absolute():
         raise ValidationError("target must be an absolute path")
+    if authority is not None:
+        authority.require_policy(app, policy)
+        authority.require_backend(app, backend)
     require_capability(policy, f"{app}.read", target=str(target))
     if app == "word":
         if render_dir is not None and not render_dir.is_absolute():
@@ -57,8 +63,14 @@ def inspect_document(
     raise ValidationError(f"unsupported app: {app}")
 
 
-def apply_plan(plan: Plan, *, dry_run: bool, adapters: RuntimeAdapters) -> dict[str, Any]:
-    authorize_plan(plan, dry_run=dry_run)
+def apply_plan(
+    plan: Plan,
+    *,
+    dry_run: bool,
+    adapters: RuntimeAdapters,
+    authority: Authority | None = None,
+) -> dict[str, Any]:
+    authorize_plan(plan, dry_run=dry_run, authority=authority)
     if plan.app == "word":
         return adapters.word.apply(plan, dry_run=dry_run)
     return adapters.slides.apply(plan, dry_run=dry_run)
@@ -71,7 +83,12 @@ def search_mail(
     policy: str,
     adapters: RuntimeAdapters,
     folder: str = "Inbox",
+    backend: str = "local",
+    authority: Authority | None = None,
 ) -> list[dict[str, Any]]:
+    if authority is not None:
+        authority.require_policy("mail", policy)
+        authority.require_backend("mail", backend)
     require_capability(policy, "mail.metadata.read")
     if not query.strip():
         raise ValidationError("mail query must not be empty")
@@ -86,9 +103,14 @@ def read_mail(
     policy: str,
     adapters: RuntimeAdapters,
     include_body: bool = False,
+    backend: str = "local",
+    authority: Authority | None = None,
 ) -> dict[str, Any]:
     if not message_id.strip():
         raise ValidationError("message id must not be empty")
+    if authority is not None:
+        authority.require_policy("mail", policy)
+        authority.require_backend("mail", backend)
     capability = "mail.body.read" if include_body else "mail.metadata.read"
     require_capability(policy, capability, target=message_id)
     return adapters.mail.read(message_id, include_body=include_body)

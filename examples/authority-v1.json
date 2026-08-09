@@ -1,0 +1,12 @@
+{
+  "schema": "white-collar.authority/v1",
+  "policies": {
+    "word": "review",
+    "slides": "review",
+    "mail": "read-only"
+  },
+  "backends": [
+    "word:com",
+    "slides:com"
+  ]
+}

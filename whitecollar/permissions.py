@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from .errors import PolicyError
 from .slides_ops import SLIDES_COM_OPERATIONS, SLIDES_COM_READ_OPERATIONS
@@ -205,7 +205,7 @@ def require_capability(policy: str, capability: str, *, target: str | None = Non
     return decision
 
 
-def catalog(*, policy: str | None = None) -> dict[str, object]:
+def catalog(*, policy: str | None = None, authority: Any | None = None) -> dict[str, object]:
     """Return the stable permission vocabulary for humans and agents."""
 
     selected = _validate_policy(policy) if policy is not None else None
@@ -220,7 +220,17 @@ def catalog(*, policy: str | None = None) -> dict[str, object]:
             "profiles": [profile for profile in PROFILE_NAMES if name in PROFILE_CAPABILITIES[profile]],
         }
         if selected is not None:
+            entry["profile_granted"] = name in selected
             entry["granted"] = name in selected
+            if authority is not None:
+                granted_profiles = [profile for profile in PROFILE_NAMES if name in PROFILE_CAPABILITIES[profile]]
+                minimum_profile = granted_profiles[0] if granted_profiles else None
+                maximum_profile = authority.maximum_policy.get(spec.app, "read-only")
+                authority_granted = minimum_profile is not None and (
+                    PROFILE_NAMES.index(maximum_profile) >= PROFILE_NAMES.index(minimum_profile)
+                )
+                entry["authority_granted"] = authority_granted
+                entry["granted"] = entry["granted"] and authority_granted
         capabilities.append(entry)
     profiles = {
         name: sorted(grants)
