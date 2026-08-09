@@ -167,7 +167,7 @@ def test_mail_body_requires_explicit_sensitive_policy(capsys):
     assert output(capsys)["data"]["body"] == "Ship it"
 
 
-def test_mail_write_plan_requires_edit_and_owner_grant(tmp_path, capsys):
+def test_mail_write_plan_requires_review_or_edit_and_owner_grant(tmp_path, capsys):
     plan_path = tmp_path / "mail.plan.json"
     plan_path.write_text(
         json.dumps(
@@ -175,7 +175,7 @@ def test_mail_write_plan_requires_edit_and_owner_grant(tmp_path, capsys):
                 "schema": "white-collar.plan/v1",
                 "app": "mail",
                 "target": {"id": "m-1"},
-                "policy": "edit",
+                "policy": "review",
                 "operations": [{"op": "mail_live_mark_read"}],
                 "write": {"mode": "none"},
             }
@@ -195,7 +195,7 @@ def test_mail_write_plan_requires_edit_and_owner_grant(tmp_path, capsys):
         authority=Authority.default(),
     ) == 2
     denied = output(capsys)
-    assert denied["error"]["details"]["capabilities"] == ["mail.write.organize"]
+    assert denied["error"]["details"]["capabilities"] == ["mail.write.state"]
     assert denied["error"]["details"]["human_action_required"] is True
 
     store = MemoryCredentialStore()
@@ -204,8 +204,8 @@ def test_mail_write_plan_requires_edit_and_owner_grant(tmp_path, capsys):
         make_grant(
             app="mail",
             backend="com",
-            policy="edit",
-            capabilities=["mail.write.organize"],
+            policy="review",
+            capabilities=["mail.write.state"],
             targets=["m-1"],
         ),
         store,
@@ -216,6 +216,29 @@ def test_mail_write_plan_requires_edit_and_owner_grant(tmp_path, capsys):
         authority=granted,
     ) == 0
     assert output(capsys)["changes"][0]["id"] == "m-1"
+
+    plan_path.write_text(
+        json.dumps(
+            {
+                "schema": "white-collar.plan/v1",
+                "app": "mail",
+                "target": {"id": "mailbox"},
+                "policy": "edit",
+                "operations": [{
+                    "op": "mail_live_create_draft",
+                    "args": {"to": "person@example.com", "subject": "Test", "body": "Hello"},
+                }],
+                "write": {"mode": "none"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert main(
+        ["mail", "apply", "--plan", str(plan_path), "--backend", "com", "--dry-run"],
+        adapters=adapters(),
+        authority=Authority.for_testing(),
+    ) == 0
+    assert output(capsys)["changes"][0]["op"] == "mail_live_create_draft"
 
     plan_path.write_text(
         json.dumps(

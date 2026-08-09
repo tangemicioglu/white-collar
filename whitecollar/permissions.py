@@ -50,8 +50,10 @@ CAPABILITIES: dict[str, Capability] = {
     "mail.metadata.read": Capability("mail.metadata.read", "mail", "Read mail headers and search metadata", "sensitive", "mailbox"),
     "mail.body.read": Capability("mail.body.read", "mail", "Read the body of a specific message", "sensitive", "message"),
     "mail.attachments.read": Capability("mail.attachments.read", "mail", "Read message attachments", "highly-sensitive", "message"),
+    "mail.write.state": Capability("mail.write.state", "mail", "Mark an Outlook message read or unread", "write", "message"),
+    "mail.write.organize": Capability("mail.write.organize", "mail", "Move or delete mail", "destructive", "message"),
+    "mail.write.compose": Capability("mail.write.compose", "mail", "Create an Outlook draft", "write", "mailbox"),
     "mail.write.send": Capability("mail.write.send", "mail", "Send an existing Outlook draft", "destructive", "message"),
-    "mail.write.organize": Capability("mail.write.organize", "mail", "Mark, move, or delete mail", "destructive", "message"),
 }
 
 
@@ -77,6 +79,12 @@ def _operation_capability(app: str, operation: str) -> str:
         if operation in SLIDES_COM_OPERATIONS:
             return "slides.write.content"
     if app == "mail" and operation in MAIL_COM_OPERATIONS:
+        if operation in {"mail_live_mark_read", "mail_live_mark_unread"}:
+            return "mail.write.state"
+        if operation == "mail_live_create_draft":
+            return "mail.write.compose"
+        if operation == "mail_live_send":
+            return "mail.write.send"
         return "mail.write.organize"
     raise PolicyError(
         "operation has no registered capability",
@@ -108,11 +116,13 @@ _REVIEW = _READ_ONLY | frozenset({
     "slides.write.content",
     "slides.write.save_as",
     "mail.body.read",
+    "mail.write.state",
 })
 _EDIT = _REVIEW | frozenset({
     "word.write.in_place",
     "slides.write.in_place",
     "mail.write.organize",
+    "mail.write.compose",
 })
 _SEND = _EDIT | frozenset({"mail.write.send"})
 

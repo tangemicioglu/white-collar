@@ -7,10 +7,12 @@ MAIL_COM_OPERATIONS = frozenset(
         "mail_live_mark_unread",
         "mail_live_move",
         "mail_live_delete",
+        "mail_live_create_draft",
         "mail_live_send",
     }
 )
 MAIL_COM_MUTATING_OPERATIONS = MAIL_COM_OPERATIONS
 MAIL_COM_REQUIRED_ARGS = {
     "mail_live_move": {"folder"},
+    "mail_live_create_draft": {"to", "subject", "body"},
 }

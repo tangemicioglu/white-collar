@@ -2,8 +2,9 @@
 
 Message metadata and explicitly requested bodies are exposed for reads. The
 write surface is a finite semantic catalog: mark read/unread, move to a
-standard folder, and delete to Outlook's Deleted Items behavior. It never
-dispatches arbitrary COM methods, composes mail, replies, or forwards mail.
+standard folder, delete to Outlook's Deleted Items behavior, and create a
+draft. It never dispatches arbitrary COM methods, replies, forwards, or sends
+newly composed mail.
 """
 
 from __future__ import annotations
@@ -59,6 +60,11 @@ class OutlookComAdapter:
         if not isinstance(message_id, str) or not message_id.strip():
             raise ValidationError("mail plans require a non-empty target.id")
         app = self._get_app()
+        operations = getattr(plan, "operations", ())
+        if any(operation["op"] == "mail_live_create_draft" for operation in operations):
+            if len(operations) != 1:
+                raise ValidationError("mail_live_create_draft must be a standalone plan")
+            return self._create_draft(app, message_id, operations[0].get("args", {}), dry_run=dry_run)
         namespace = _namespace(app)
         item = _get_item_from_id(namespace, message_id)
         if not _is_mail_item(item):
@@ -117,6 +123,52 @@ class OutlookComAdapter:
                 changes.append({"op": name, "id": message_id, "sent": not dry_run})
         return {"changes": changes, "written": not dry_run}
 
+    def _create_draft(self, app: Any, mailbox: str, args: dict[str, Any], *, dry_run: bool) -> dict[str, Any]:
+        account = mailbox.strip()
+        if account.lower() != "mailbox":
+            _find_account(app, account)
+        summary: dict[str, Any] = {
+            "op": "mail_live_create_draft",
+            "mailbox": account,
+            "to": args["to"],
+            "subject": args["subject"],
+            "body_chars": len(args["body"]),
+            "created": False,
+        }
+        for field in ("cc", "bcc"):
+            if args.get(field):
+                summary[field] = args[field]
+        if dry_run:
+            return {"changes": [summary], "written": False}
+        create_item = getattr(app, "CreateItem", None)
+        if not callable(create_item):
+            raise ValidationError("Outlook application does not support draft creation")
+        try:
+            draft = create_item(0)  # Outlook MailItem
+            if account.lower() != "mailbox":
+                draft.SendUsingAccount = _find_account(app, account)
+            draft.To = args["to"]
+            draft.Subject = args["subject"]
+            draft.Body = args["body"]
+            if "cc" in args:
+                draft.CC = args["cc"]
+            if "bcc" in args:
+                draft.BCC = args["bcc"]
+            save = getattr(draft, "Save", None)
+            if not callable(save):
+                raise ValidationError("Outlook draft does not support Save")
+            save()
+        except ValidationError:
+            raise
+        except Exception as exc:
+            raise BackendUnavailableError("outlook-com") from exc
+        draft_id = str(_safe_value(draft, "EntryID", ""))
+        if not draft_id:
+            raise ValidationError("Outlook did not return an entry ID for the new draft")
+        summary["draft_id"] = draft_id
+        summary["created"] = True
+        return {"changes": [summary], "written": True}
+
     def _get_app(self) -> Any:
         try:
             return self._app_factory()
@@ -172,6 +224,20 @@ def _get_item_from_id(namespace: Any, message_id: str) -> Any:
     if item is None:
         raise ValidationError("Outlook message was not found", details={"message_id": message_id})
     return item
+
+
+def _find_account(app: Any, address: str) -> Any:
+    session = _safe_value(app, "Session", None)
+    accounts = _safe_value(session, "Accounts", None)
+    for account in _iter_collection(accounts):
+        smtp = str(_safe_value(account, "SmtpAddress", "")).strip().lower()
+        name = str(_safe_value(account, "AccountName", "")).strip().lower()
+        if address.lower() in {smtp, name}:
+            return account
+    raise ValidationError(
+        "Outlook account was not found",
+        details={"account": address},
+    )
 
 
 def _message_metadata(item: Any, *, folder: str | None = None, include_body: bool = False) -> dict[str, Any]:

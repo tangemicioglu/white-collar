@@ -202,6 +202,23 @@ def _validate_operation(app: str, raw: Any, index: int) -> dict[str, Any]:
         missing = MAIL_COM_REQUIRED_ARGS.get(operation, set()) - set(args)
         if missing:
             raise ValidationError(f"{context}.args is missing required field(s): {', '.join(sorted(missing))}")
+        if operation == "mail_live_create_draft":
+            _expect_keys(
+                args,
+                required={"to", "subject", "body"},
+                optional={"cc", "bcc"},
+                context=f"{context}.args",
+            )
+            for field in ("to", "subject", "body"):
+                if not isinstance(args[field], str):
+                    raise ValidationError(f"{context}.args.{field} must be a string")
+            if not args["to"].strip():
+                raise ValidationError(f"{context}.args.to must be a non-empty string")
+            if not args["subject"].strip():
+                raise ValidationError(f"{context}.args.subject must be a non-empty string")
+            for field in ("cc", "bcc"):
+                if field in args and not isinstance(args[field], str):
+                    raise ValidationError(f"{context}.args.{field} must be a string")
         return {"op": operation, "args": args}
     raise ValidationError(f"{context}.op is unsupported for {app}")
 

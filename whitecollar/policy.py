@@ -56,11 +56,13 @@ def authorize_plan(
             raise PolicyError("mail mutation plans must use write.mode 'none'")
         if not operations or not operations.issubset(MAIL_COM_MUTATING_OPERATIONS):
             raise PolicyError("mail plan contains an unsupported operation")
-        if "mail_live_send" in operations and operations != {"mail_live_send"}:
-            raise PolicyError("send must be a standalone mail plan")
+        if ({"mail_live_send", "mail_live_create_draft"} & operations) and len(operations) != 1:
+            raise PolicyError("mail send and compose must be standalone plans")
         if "mail_live_send" in operations and plan.policy != "send":
             raise PolicyError("sending mail requires the 'send' policy level")
-        if "mail_live_send" not in operations and plan.policy == "send":
+        if "mail_live_create_draft" in operations and plan.policy != "edit":
+            raise PolicyError("composing mail requires the 'edit' policy level")
+        if not ({"mail_live_send", "mail_live_create_draft"} & operations) and plan.policy == "send":
             raise PolicyError("the 'send' policy level is only valid for sending mail")
         target = plan.target.id
         required_capabilities = tuple(

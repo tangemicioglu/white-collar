@@ -91,7 +91,9 @@ white-collar permissions check --capability mail.body.read --policy review --bac
 white-collar permissions grant --app word --backend local --policy review --target C:\work\brief.docx --target C:\work\brief-reviewed.docx
 white-collar permissions grant --app mail --backend com --policy review --capability mail.metadata.read --target mailbox
 white-collar permissions grant --app mail --backend com --policy review --capability mail.body.read --target MESSAGE_ID
+white-collar permissions grant --app mail --backend com --policy review --capability mail.write.state --target MESSAGE_ID
 white-collar permissions grant --app mail --backend com --policy edit --capability mail.write.organize --target MESSAGE_ID
+white-collar permissions grant --app mail --backend com --policy edit --capability mail.write.compose --target mailbox
 white-collar permissions grant --app mail --backend com --policy send --capability mail.write.send --target DRAFT_ID
 white-collar permissions revoke --app mail --backend com --policy review --capability mail.body.read --target MESSAGE_ID
 ```
@@ -99,15 +101,17 @@ white-collar permissions revoke --app mail --backend com --policy review --capab
 Mail commands and inspect commands default to `read-only`. Mail search and a
 message metadata read use `mail.metadata.read`; `mail read --include-body`
 requires an explicit `review` or `edit` policy and the `mail.body.read`
-capability, plus a matching human-owner grant for that policy. No mail write capability is
-granted by the default authority. Mail writes are `edit`-only, use a message-ID
-target, and require an exact human-owner grant for `mail.write.organize`.
+capability, plus a matching human-owner grant for that policy. No Outlook COM
+write capability is granted by the default authority. Mark read/unread is
+`review`-level; moving/deleting mail and creating drafts are `edit`-level; and
+sending is `send`-only. Each requires an exact human-owner grant.
 
 ## Plans
 
 Mutation plans use `white-collar.plan/v1`, name one target and policy, and contain
-only app-approved operations. Office file plans use a path target; mail plans
-use a message-ID target. The checked-in
+only app-approved operations. Office file plans use a path target; mail message
+plans use a message-ID target, while draft-composition plans use a mailbox or
+account target. The checked-in
 [plan schema](schemas/plan-v1.schema.json) is the wire contract.
 
 ```json

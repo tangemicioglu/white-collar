@@ -53,6 +53,23 @@ class FakeMessage:
         self.Sent = True
 
 
+class FakeDraft:
+    MessageClass = "IPM.Note"
+
+    def __init__(self, message_id="draft-1"):
+        self.EntryID = message_id
+        self.To = ""
+        self.CC = ""
+        self.BCC = ""
+        self.Subject = ""
+        self.Body = ""
+        self.SendUsingAccount = None
+        self.save_calls = 0
+
+    def Save(self):
+        self.save_calls += 1
+
+
 class FakeFolder:
     def __init__(self, *items, name="Inbox"):
         self.Name = name
@@ -82,10 +99,20 @@ class FakeNamespace:
 class FakeOutlook:
     def __init__(self, namespace):
         self.namespace = namespace
+        self.created_drafts = []
+        self.Session = SimpleNamespace(
+            Accounts=[SimpleNamespace(SmtpAddress="tgemicioglu@outlook.com", AccountName="tgemicioglu@outlook.com")]
+        )
 
     def GetNamespace(self, name):
         assert name == "MAPI"
         return self.namespace
+
+    def CreateItem(self, item_type):
+        assert item_type == 0
+        draft = FakeDraft()
+        self.created_drafts.append(draft)
+        return draft
 
 
 def adapter_and_messages():
@@ -96,12 +123,18 @@ def adapter_and_messages():
     return OutlookComAdapter(app_factory=lambda: FakeOutlook(namespace)), first, second
 
 
-def mail_plan(operation: str, *, args: dict | None = None, policy: str = "edit") -> Plan:
+def mail_plan(
+    operation: str,
+    *,
+    args: dict | None = None,
+    policy: str = "edit",
+    target_id: str = "m-1",
+) -> Plan:
     return Plan.from_dict(
         {
             "schema": "white-collar.plan/v1",
             "app": "mail",
-            "target": {"id": "m-1"},
+            "target": {"id": target_id},
             "policy": policy,
             "operations": [{"op": operation, "args": args or {}}],
             "write": {"mode": "none"},
@@ -169,3 +202,52 @@ def test_send_requires_send_plan_level_and_dry_run_does_not_send():
     assert first.send_calls == 1
     with pytest.raises(ValidationError, match="already marks as sent"):
         adapter.apply(mail_plan("mail_live_send", policy="send"), dry_run=False)
+
+
+def test_create_draft_is_bounded_and_dry_run_does_not_create():
+    first = FakeMessage("m-1", "Roadmap review", "Ada Lovelace", "ada@example.com", "Secret body")
+    namespace = FakeNamespace(FakeFolder(first), [first])
+    outlook = FakeOutlook(namespace)
+    adapter = OutlookComAdapter(app_factory=lambda: outlook)
+    plan = mail_plan(
+        "mail_live_create_draft",
+        policy="edit",
+        target_id="tgemicioglu@outlook.com",
+        args={
+            "to": "person@example.com",
+            "cc": "copy@example.com",
+            "bcc": "blind@example.com",
+            "subject": "A bounded test",
+            "body": "Hello from a draft.",
+        },
+    )
+    preview = adapter.apply(plan, dry_run=True)
+    assert preview["written"] is False
+    assert preview["changes"][0]["created"] is False
+    assert not outlook.created_drafts
+
+    result = adapter.apply(plan, dry_run=False)
+    assert result["written"] is True
+    draft = outlook.created_drafts[0]
+    assert draft.To == "person@example.com"
+    assert draft.CC == "copy@example.com"
+    assert draft.BCC == "blind@example.com"
+    assert draft.Subject == "A bounded test"
+    assert draft.Body == "Hello from a draft."
+    assert draft.SendUsingAccount.SmtpAddress == "tgemicioglu@outlook.com"
+    assert draft.save_calls == 1
+    assert result["changes"][0]["draft_id"] == "draft-1"
+
+
+def test_create_draft_rejects_unknown_account():
+    first = FakeMessage("m-1", "Roadmap review", "Ada Lovelace", "ada@example.com", "Secret body")
+    namespace = FakeNamespace(FakeFolder(first), [first])
+    outlook = FakeOutlook(namespace)
+    adapter = OutlookComAdapter(app_factory=lambda: outlook)
+    plan = mail_plan(
+        "mail_live_create_draft",
+        target_id="missing@example.com",
+        args={"to": "person@example.com", "subject": "Test", "body": "Hello"},
+    )
+    with pytest.raises(ValidationError, match="account was not found"):
+        adapter.apply(plan, dry_run=True)
