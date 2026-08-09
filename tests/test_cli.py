@@ -84,6 +84,16 @@ def test_word_inspect_smoke(make_docx, tmp_path, capsys):
     assert "dry_run" not in value
 
 
+def test_doctor_is_machine_readable_and_does_not_need_office(capsys):
+    assert main(["doctor"], adapters=adapters(), authority=Authority.default()) == 0
+    value = output(capsys)
+    assert value["command"] == "doctor"
+    assert value["policy"] == "read-only"
+    assert value["data"]["backends"]["word"]["local"]["status"] == "ready"
+    assert value["data"]["permissions"]["owner_grants"] == 0
+    assert value["data"]["permissions"]["targets"].startswith("redacted")
+
+
 def test_word_apply_dry_run_smoke(make_docx, tmp_path, capsys):
     target = make_docx(tmp_path / "brief.docx", "Draft")
     plan = write_plan(tmp_path / "plan.json", target, tmp_path / "final.docx")

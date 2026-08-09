@@ -18,6 +18,7 @@ from .authority import (
     save_grant,
 )
 from .engine import RuntimeAdapters, apply_plan, inspect_document, read_mail, search_mail
+from .doctor import diagnose
 from .errors import ValidationError, WhiteCollarError
 from .models import Plan, result
 from .permissions import (
@@ -45,6 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup.add_argument("--app", dest="setup_app", choices=("word", "slides", "mail"))
     setup.add_argument("--policy", choices=SETUP_POLICY_NAMES)
     setup.add_argument("--json", action="store_true", help="emit the machine-readable result instead of human setup output")
+    apps.add_parser("doctor", help="diagnose local dependencies, backends, and permission readiness")
 
     for app in ("word", "slides"):
         app_parser = apps.add_parser(app)
@@ -268,6 +270,8 @@ def _run(
     grant_store: Any | None = None,
 ) -> dict[str, Any]:
     command = _command_name(args)
+    if args.app == "doctor":
+        return result(ok=True, command=command, policy="read-only", dry_run=False, data=diagnose(authority))
     if args.app == "setup":
         selections = _collect_setup_selections(args)
         grants_by_app, summary = _setup_grants(selections)

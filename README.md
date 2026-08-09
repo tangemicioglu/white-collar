@@ -86,6 +86,7 @@ white-collar mail apply --backend com --plan C:\work\mark-read.plan.json
 
 white-collar setup
 white-collar setup --app mail --policy edit
+white-collar doctor
 
 white-collar permissions show
 white-collar permissions show --policy review
