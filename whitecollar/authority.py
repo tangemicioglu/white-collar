@@ -30,7 +30,6 @@ HUMAN_PERMISSION_NOTICE = (
     "to approve this grant in their own interactive terminal; it must not create, "
     "edit, confirm, or retry the grant."
 )
-HUMAN_CONFIRMATION_PHRASE = "I AM THE HUMAN OWNER"
 
 
 class CredentialStore(Protocol):

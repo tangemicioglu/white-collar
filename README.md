@@ -55,8 +55,10 @@ python -m pip install -e ".[office]"
 
 ## Commands
 
-All successful operations and expected failures emit one compact JSON object to
-standard output using `white-collar.result/v1`. The envelope includes
+All normal operations and expected failures emit one compact JSON object to
+standard output using `white-collar.result/v1`. The human-only permission
+grant/revoke path uses readable terminal output when interactive; pass
+`--json` there to force the result envelope. The envelope includes
 `dry_run: true` only when a mutation was explicitly simulated; ordinary
 responses omit that false-valued field to keep agent context small.
 
@@ -190,11 +192,13 @@ through the unavailable local stub; Outlook COM requires a separate explicit
 owner grant.
 
 `permissions grant` and `permissions revoke` are deliberately human-owner-only.
-They require an interactive terminal and an exact confirmation phrase. If an
-agent reaches this path, it receives a structured response telling it to stop
-and ask the human; it must not create, edit, confirm, or retry a permission
-change. The grant payload is stored as a protected credential blob and is not
-accepted from command-line JSON or a plan.
+In an interactive terminal they show a human-readable summary and use a normal
+`[y/N]` confirmation; `--json` is available when a human explicitly needs the
+machine-readable form. Noninteractive invocations remain JSON so an agent
+receives a structured response telling it to stop and ask the human; it must
+not create, edit, confirm, or retry a permission change. The grant payload is
+stored as a protected credential blob and is not accepted from command-line
+JSON or a plan.
 
 This is an authority boundary for normal CLI and agent operation, not a promise
 that arbitrary code already running as the same Windows user cannot access that

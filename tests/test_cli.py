@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import io
 import subprocess
 import sys
 
 from conftest import write_plan
 from whitecollar.adapters.word import OoxmlWordAdapter
 from whitecollar.authority import Authority, MemoryCredentialStore, make_grant, save_grant
+from whitecollar import cli
 from whitecollar.cli import main
 from whitecollar.engine import RuntimeAdapters
 
@@ -50,6 +52,22 @@ def adapters() -> RuntimeAdapters:
 
 def output(capsys):
     return json.loads(capsys.readouterr().out)
+
+
+class TtyStream(io.StringIO):
+    def isatty(self):
+        return True
+
+
+def test_permission_confirmation_uses_normal_yes_no_prompt(monkeypatch):
+    stdin = TtyStream("yes\n")
+    stderr = TtyStream()
+    monkeypatch.setattr(cli.sys, "stdin", stdin)
+    monkeypatch.setattr(cli.sys, "stderr", stderr)
+    cli._human_confirmation(action="grant", summary="Permission change:\n  target: mailbox")
+    prompt = stderr.getvalue()
+    assert "Grant this permission? [y/N]" in prompt
+    assert "I AM THE HUMAN OWNER" not in prompt
 
 
 def invoke(argv, *, adapters):

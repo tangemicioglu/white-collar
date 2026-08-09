@@ -8,7 +8,6 @@ from typing import Any, Sequence
 
 from . import __version__
 from .authority import (
-    HUMAN_CONFIRMATION_PHRASE,
     HUMAN_PERMISSION_NOTICE,
     Authority,
     load_authority,
@@ -79,6 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
     grant.add_argument("--policy", choices=PROFILE_NAMES, required=True)
     grant.add_argument("--target", action="append", required=True, help="exact file, message id, or 'mailbox'; repeat for multiple targets")
     grant.add_argument("--capability", action="append", help="narrow the grant; repeat for multiple capabilities")
+    grant.add_argument("--json", action="store_true", help="emit the machine-readable result instead of the human confirmation output")
     revoke = permission_commands.add_parser("revoke", help="human-owner-only; revoke a narrowly scoped grant")
     revoke.add_argument("--app", dest="grant_app", choices=("word", "slides", "mail"))
     revoke.add_argument("--backend", choices=("local", "com"))
@@ -86,6 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
     revoke.add_argument("--target", action="append", help="exact target; repeat for multiple targets")
     revoke.add_argument("--capability", action="append", help="identify the grant; repeat for multiple capabilities")
     revoke.add_argument("--all", action="store_true", help="revoke all owner grants; human confirmation is still required")
+    revoke.add_argument("--json", action="store_true", help="emit the machine-readable result instead of the human confirmation output")
     return parser
 
 
@@ -105,6 +106,20 @@ def _command_name(args: argparse.Namespace | None) -> str:
     return ".".join(part for part in (getattr(args, "app", None), getattr(args, "action", None)) if part) or "cli"
 
 
+def _grant_summary(grant: Any) -> str:
+    value = grant.to_dict()
+    return "\n".join(
+        (
+            "Permission change:",
+            f"  application: {value['app']}",
+            f"  backend: {value['backend']}",
+            f"  policy: {value['policy']}",
+            f"  capabilities: {', '.join(value['capabilities'])}",
+            f"  targets: {', '.join(value['targets'])}",
+        )
+    )
+
+
 def _human_confirmation(*, action: str, summary: str) -> None:
     """Require a real interactive terminal before changing owner grants."""
 
@@ -121,13 +136,10 @@ def _human_confirmation(*, action: str, summary: str) -> None:
     print("WHITE-COLLAR OWNER PERMISSION CHANGE", file=sys.stderr)
     print(HUMAN_PERMISSION_NOTICE, file=sys.stderr)
     print(summary, file=sys.stderr)
-    print(
-        f"If you are the human owner, type {HUMAN_CONFIRMATION_PHRASE!r} to {action}.",
-        file=sys.stderr,
-    )
+    print(f"{action.capitalize()} this permission? [y/N] ", end="", file=sys.stderr)
     sys.stderr.flush()
-    answer = sys.stdin.readline().strip()
-    if answer != HUMAN_CONFIRMATION_PHRASE:
+    answer = sys.stdin.readline().strip().casefold()
+    if answer not in {"y", "yes"}:
         raise ValidationError(
             "human confirmation was not received; no permission was changed",
             details={
@@ -136,6 +148,30 @@ def _human_confirmation(*, action: str, summary: str) -> None:
                 "requested_action": action,
             },
         )
+
+
+def _human_permission_output(args: argparse.Namespace | None) -> bool:
+    return bool(
+        args
+        and args.app == "permissions"
+        and args.action in {"grant", "revoke"}
+        and not getattr(args, "json", False)
+        and sys.stdin.isatty()
+        and sys.stderr.isatty()
+    )
+
+
+def _print_human_permission_result(response: dict[str, Any], *, action: str) -> None:
+    if response.get("ok"):
+        verb = {"grant": "granted", "revoke": "revoked"}[action]
+        print(f"Permission {verb}.")
+        if action == "grant":
+            print("The grant is stored in protected OS credential storage.")
+        else:
+            print("The grant was removed from protected OS credential storage.")
+        return
+    error = response.get("error", {})
+    print(f"white-collar: {error.get('message', 'permission change failed')}", file=sys.stderr)
 
 
 def _run(
@@ -169,7 +205,7 @@ def _run(
             targets=targets,
             capabilities=args.capability,
         )
-        _human_confirmation(action="grant", summary=json.dumps(grant.to_dict(), sort_keys=True))
+        _human_confirmation(action="grant", summary=_grant_summary(grant))
         updated = save_grant(authority, grant, store=grant_store)
         return result(ok=True, command=command, policy=args.policy, dry_run=False, data=updated.to_dict())
     if args.app == "permissions" and args.action == "revoke":
@@ -187,7 +223,7 @@ def _run(
                 targets=list(args.target),
                 capabilities=args.capability,
             )
-            _human_confirmation(action="revoke", summary=json.dumps(grant.to_dict(), sort_keys=True))
+            _human_confirmation(action="revoke", summary=_grant_summary(grant))
             updated = revoke_grant(authority, grant, store=grant_store)
         return result(ok=True, command=command, policy=args.policy, dry_run=False, data=updated.to_dict())
     if args.app in {"word", "slides"} and args.action == "inspect":
@@ -308,7 +344,10 @@ def main(
             error={"code": "io_error", "message": str(exc), "details": {}},
         )
         exit_code = 2
-    print(json.dumps(response, sort_keys=True, separators=(",", ":")))
+    if _human_permission_output(parsed):
+        _print_human_permission_result(response, action="grant" if parsed.action == "grant" else "revoke")
+    else:
+        print(json.dumps(response, sort_keys=True, separators=(",", ":")))
     return exit_code
 
 
