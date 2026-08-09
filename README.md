@@ -30,7 +30,8 @@ PowerPoint has an opt-in real COM backend with a finite semantic operation
 catalog. It requires Windows, PowerPoint, and the optional `office` dependencies;
 the default local runtime remains Office-free and returns a structured
 `backend_unavailable` result for slides. Outlook is still a narrow, mockable
-adapter stub and remains read-only.
+adapter stub; it has no write capabilities, and message-body reads require an
+explicit sensitive-read policy.
 
 ## Setup
 
@@ -74,11 +75,18 @@ white-collar slides apply --plan C:\work\slides.plan.json --backend com
 
 white-collar mail search --query "from:ada@example.com roadmap" --limit 10
 white-collar mail read --id MESSAGE_ID
+white-collar mail read --id MESSAGE_ID --include-body --policy review
+
+white-collar permissions show
+white-collar permissions show --policy review
+white-collar permissions check --capability word.write.save_as --policy review --target C:\work\brief.docx
+white-collar permissions check --capability mail.body.read --policy review --target MESSAGE_ID
 ```
 
-Mail commands default to `read-only`. Inspect commands also default to
-`read-only`; `--policy review` and `--policy edit` are available when a caller
-needs to make its granted capability explicit.
+Mail commands and inspect commands default to `read-only`. Mail search and a
+message metadata read use `mail.metadata.read`; `mail read --include-body`
+requires an explicit `review` or `edit` policy and the `mail.body.read`
+capability. No mail write capability is granted by any v0.1 profile.
 
 ## Plans
 
@@ -133,7 +141,14 @@ no field for a COM method, object path, macro, or arbitrary Office invocation.
 The policy is embedded in every mutation plan and checked before an adapter is
 called. `review` is intended for agent workflows that produce a new artifact for
 human review. `edit` is the only profile that permits replacing the target, and
-the plan must provide a distinct snapshot path. Mail is read-only in v0.1.
+the plan must provide a distinct snapshot path.
+
+The permission layer maps finite app operations to a smaller shared capability
+vocabulary. `white-collar permissions show` exposes that versioned vocabulary;
+`permissions check` checks a profile without invoking an Office adapter. Plans
+cannot add grants to themselves. File capabilities require an absolute target,
+and message-body access requires a message target. The default mail profile can
+search metadata but does not expose message bodies or attachments.
 
 The opt-in COM backends cover the finite Word and PowerPoint semantic operation
 vocabularies documented in [the Word COM operation catalog](docs/word-com-operations.md)
@@ -155,7 +170,8 @@ operation matches no text, the target hash changed, or an output path exists.
 The public model stays small:
 
 * Word, slides, and mail have separate protocols and command trees.
-* Shared code handles plans, results, targeting, policy, and error envelopes.
+* Shared code handles plans, results, targeting, permissions, policy, and error
+  envelopes.
 * Backends implement semantic operations such as `replace_text`, `search`, and
   `read`; they do not leak COM object models into plans.
 

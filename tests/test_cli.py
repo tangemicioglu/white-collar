@@ -30,8 +30,11 @@ class FakeMail:
     def search(self, query, *, limit):
         return [{"id": "m-1", "subject": "Roadmap", "query": query}][:limit]
 
-    def read(self, message_id):
-        return {"id": message_id, "subject": "Roadmap", "body": "Ship it"}
+    def read(self, message_id, *, include_body=False):
+        value = {"id": message_id, "subject": "Roadmap"}
+        if include_body:
+            value["body"] = "Ship it"
+        return value
 
 
 def adapters() -> RuntimeAdapters:
@@ -93,7 +96,41 @@ def test_mail_search_and_read_default_to_read_only(capsys):
     assert searched["policy"] == "read-only"
     assert searched["data"][0]["id"] == "m-1"
     assert main(["mail", "read", "--id", "m-1"], adapters=adapters()) == 0
+    assert "body" not in output(capsys)["data"]
+
+
+def test_mail_body_requires_explicit_sensitive_policy(capsys):
+    assert main(["mail", "read", "--id", "m-1", "--include-body"], adapters=adapters()) == 2
+    denied = output(capsys)
+    assert denied["error"]["code"] == "policy_denied"
+    assert denied["error"]["details"]["capability"] == "mail.body.read"
+    assert main(
+        ["mail", "read", "--id", "m-1", "--include-body", "--policy", "review"],
+        adapters=adapters(),
+    ) == 0
     assert output(capsys)["data"]["body"] == "Ship it"
+
+
+def test_permissions_commands_are_machine_readable(tmp_path, capsys):
+    assert main(["permissions", "show", "--policy", "review"], adapters=adapters()) == 0
+    shown = output(capsys)
+    assert shown["data"]["schema"] == "white-collar.permissions/v1"
+    assert "mail.body.read" in shown["data"]["profiles"]["review"]
+
+    target = str((tmp_path / "brief.docx").resolve())
+    assert main(
+        ["permissions", "check", "--policy", "review", "--capability", "word.write.save_as", "--target", target],
+        adapters=adapters(),
+    ) == 0
+    allowed = output(capsys)
+    assert allowed["data"]["decision"] == "allow"
+
+    assert main(
+        ["permissions", "check", "--capability", "mail.body.read", "--target", "m-1"],
+        adapters=adapters(),
+    ) == 2
+    denied = output(capsys)
+    assert denied["error"]["details"]["capability"] == "mail.body.read"
 
 
 def test_cli_validation_errors_are_json(capsys):

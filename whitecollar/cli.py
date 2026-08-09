@@ -10,6 +10,7 @@ from . import __version__
 from .engine import RuntimeAdapters, apply_plan, inspect_document, read_mail, search_mail
 from .errors import ValidationError, WhiteCollarError
 from .models import PLAN_SCHEMA, Plan, result
+from .permissions import catalog, require_capability
 
 
 class JsonArgumentParser(argparse.ArgumentParser):
@@ -44,6 +45,16 @@ def build_parser() -> argparse.ArgumentParser:
     read = mail_commands.add_parser("read")
     read.add_argument("--id", required=True, dest="message_id")
     read.add_argument("--policy", choices=("read-only", "review", "edit"), default="read-only")
+    read.add_argument("--include-body", action="store_true", help="request sensitive message body access")
+
+    permissions = apps.add_parser("permissions", help="inspect and check local capability grants")
+    permission_commands = permissions.add_subparsers(dest="action", required=True, parser_class=JsonArgumentParser)
+    show = permission_commands.add_parser("show")
+    show.add_argument("--policy", choices=("read-only", "review", "edit"), default="read-only")
+    check = permission_commands.add_parser("check")
+    check.add_argument("--capability", required=True)
+    check.add_argument("--target")
+    check.add_argument("--policy", choices=("read-only", "review", "edit"), default="read-only")
     return parser
 
 
@@ -65,6 +76,11 @@ def _command_name(args: argparse.Namespace | None) -> str:
 
 def _run(args: argparse.Namespace, adapters: RuntimeAdapters) -> dict[str, Any]:
     command = _command_name(args)
+    if args.app == "permissions" and args.action == "show":
+        return result(ok=True, command=command, policy=args.policy, dry_run=False, data=catalog(policy=args.policy))
+    if args.app == "permissions" and args.action == "check":
+        decision = require_capability(args.policy, args.capability, target=args.target)
+        return result(ok=True, command=command, policy=args.policy, dry_run=False, target=args.target, data=decision)
     if args.app in {"word", "slides"} and args.action == "inspect":
         target = Path(args.target).resolve()
         render_dir = Path(args.render_dir).resolve() if getattr(args, "render_dir", None) else None
@@ -93,7 +109,12 @@ def _run(args: argparse.Namespace, adapters: RuntimeAdapters) -> dict[str, Any]:
         data = search_mail(args.query, limit=args.limit, policy=args.policy, adapters=adapters)
         return result(ok=True, command=command, policy=args.policy, dry_run=False, data=data)
     if args.app == "mail" and args.action == "read":
-        data = read_mail(args.message_id, policy=args.policy, adapters=adapters)
+        data = read_mail(
+            args.message_id,
+            policy=args.policy,
+            adapters=adapters,
+            include_body=args.include_body,
+        )
         return result(ok=True, command=command, policy=args.policy, dry_run=False, data=data)
     raise ValidationError("unsupported command")
 

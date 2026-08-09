@@ -4,6 +4,11 @@ from dataclasses import dataclass
 
 from .errors import PolicyError
 from .models import POLICY_NAMES, Plan
+from .permissions import (
+    PROFILE_CAPABILITIES,
+    capability_for_operation,
+    require_capability,
+)
 from .slides_ops import SLIDES_COM_MUTATING_OPERATIONS, is_read_operation as is_slides_read_operation
 from .word_ops import WORD_COM_MUTATING_OPERATIONS, is_read_operation as is_word_read_operation
 
@@ -15,12 +20,13 @@ class PolicyProfile:
     allow_dry_run: bool
     allow_save_as: bool
     allow_in_place: bool
+    capabilities: frozenset[str]
 
 
 PROFILES = {
-    "read-only": PolicyProfile("read-only", True, False, False, False),
-    "review": PolicyProfile("review", True, True, True, False),
-    "edit": PolicyProfile("edit", True, True, True, True),
+    "read-only": PolicyProfile("read-only", True, False, False, False, PROFILE_CAPABILITIES["read-only"]),
+    "review": PolicyProfile("review", True, True, True, False, PROFILE_CAPABILITIES["review"]),
+    "edit": PolicyProfile("edit", True, True, True, True, PROFILE_CAPABILITIES["edit"]),
 }
 
 
@@ -52,10 +58,14 @@ def authorize_plan(plan: Plan, *, dry_run: bool) -> PolicyProfile:
     if not is_mutation:
         if dry_run:
             raise PolicyError("read operations do not need --dry-run")
+        for operation in operations:
+            require_capability(plan.policy, capability_for_operation(plan.app, operation), target=plan.target.path)
         return profile
     if dry_run:
         if not profile.allow_dry_run:
             raise PolicyError(f"policy {plan.policy!r} does not allow mutation plans, including dry-runs")
+        for operation in operations:
+            require_capability(plan.policy, capability_for_operation(plan.app, operation), target=plan.target.path)
         return profile
     if plan.write.mode == "none":
         raise PolicyError(f"mutating {app_name} operations require save-as or in-place write intent")
@@ -63,4 +73,7 @@ def authorize_plan(plan: Plan, *, dry_run: bool) -> PolicyProfile:
         raise PolicyError(f"policy {plan.policy!r} does not allow save-as writes")
     if plan.write.mode == "in-place" and not profile.allow_in_place:
         raise PolicyError(f"policy {plan.policy!r} does not allow in-place writes")
+    for operation in operations:
+        require_capability(plan.policy, capability_for_operation(plan.app, operation), target=plan.target.path)
+    require_capability(plan.policy, f"{plan.app}.write.{plan.write.mode.replace('-', '_')}", target=plan.target.path)
     return profile

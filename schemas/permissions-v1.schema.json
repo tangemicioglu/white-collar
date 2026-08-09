@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://white-collar.local/schemas/permissions-v1.schema.json",
+  "title": "white-collar permissions v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "profiles", "capabilities"],
+  "properties": {
+    "schema": {"const": "white-collar.permissions/v1"},
+    "profiles": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {"type": "string"}
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "app", "description", "risk", "target", "profiles"],
+        "properties": {
+          "name": {"type": "string"},
+          "app": {"enum": ["word", "slides", "mail"]},
+          "description": {"type": "string"},
+          "risk": {"enum": ["read", "write", "sensitive", "highly-sensitive", "destructive"]},
+          "target": {"enum": ["file", "mailbox", "message"]},
+          "profiles": {"type": "array", "items": {"enum": ["read-only", "review", "edit"]}},
+          "granted": {"type": "boolean"}
+        }
+      }
+    }
+  }
+}
