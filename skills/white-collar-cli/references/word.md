@@ -20,6 +20,17 @@ The render directory receives `page-1.png`, `page-2.png`, and so on. Existing
 outputs are not overwritten. The renderer uses Word's native PDF export and the
 system `pdftoppm`; `pdf2image` is not required by the CLI path.
 
+## Create a blank document
+
+```powershell
+white-collar word create --output C:\work\new-brief.docx --dry-run
+white-collar word create --output C:\work\new-brief.docx
+```
+
+The command creates a valid blank `.docx` through Word COM, refuses an
+existing output, and closes the new document after saving. It does not require
+an existing source document or an open target.
+
 ## Simple replacement
 
 For one replacement, use the bounded shortcut:
@@ -87,5 +98,6 @@ method names. Examples include `word_live_replace_text`,
 when an exact operation name or argument shape is needed.
 
 Use `--backend com` only on Windows with the optional `office` extra. Live
-mutation plans require the document to already be open in Word. The CLI still
-validates policy, targeting, hash, and write safety before the adapter.
+mutation plans against existing documents require the document to already be
+open in Word; create plans are the exception. The CLI still validates policy,
+targeting, hash, and write safety before the adapter.

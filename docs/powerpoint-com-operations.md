@@ -8,7 +8,7 @@ method names; there is no arbitrary dispatch escape hatch.
 | --- | --- |
 | Reading | `slides_live_list_open`, `slides_live_get_info`, `slides_live_get_text`, `slides_live_get_slide_text`, `slides_live_find_text` |
 | Text | `slides_live_insert_text`, `slides_live_replace_text`, `slides_live_set_title`, `slides_live_add_textbox`, `slides_live_format_text` |
-| Slides | `slides_live_add_slide`, `slides_live_delete_slide`, `slides_live_duplicate_slide`, `slides_live_reorder_slide`, `slides_live_set_slide_size` |
+| Creation/slides | `slides_live_create_presentation`, `slides_live_add_slide`, `slides_live_delete_slide`, `slides_live_duplicate_slide`, `slides_live_reorder_slide`, `slides_live_set_slide_size` |
 | Graphics | `slides_live_add_shape`, `slides_live_add_image`, `slides_live_set_background` |
 | Notes/save/capture | `slides_live_set_notes`, `slides_live_save`, `slides_screen_capture` |
 
@@ -17,6 +17,18 @@ read-only inspection option, not a plan operation. It opens a closed target
 read-only when needed and uses PowerPoint's native `Slide.Export` to write
 `slide-1.png`, `slide-2.png`, and so on. Existing output files are never
 overwritten.
+
+Create a new PowerPoint presentation with one blank slide:
+
+```powershell
+white-collar slides create --output C:\work\new-deck.pptx --dry-run
+white-collar slides create --output C:\work\new-deck.pptx
+```
+
+The create operation uses PowerPoint's `Presentations.Add`, adds one blank
+slide, saves through native `SaveAs`, closes the presentation, and refuses an
+existing output. It is also available as the standalone plan operation
+`slides_live_create_presentation` with `write.mode: "create"`.
 
 Example PowerPoint plan operation:
 
@@ -32,10 +44,11 @@ Example PowerPoint plan operation:
 ```
 
 Use `white-collar slides apply --backend com --plan plan.json` on Windows with
-PowerPoint and the optional `office` dependencies installed. The target
-presentation must already be open in PowerPoint. A mutation plan must use
-PowerPoint's built-in default authority allows `review` with save-as. Mutations
-must use `review` with save-as or `edit` with an explicit in-place snapshot. Read
+PowerPoint and the optional `office` dependencies installed. Plans that mutate
+an existing presentation must identify it already open in PowerPoint;
+standalone create plans are the exception. PowerPoint's built-in default
+authority allows `review` creation and save-as. Existing-file mutations must
+use `review` with save-as or `edit` with an explicit in-place snapshot. Read
 operations use `read-only` and `write.mode: "none"`.
 
 `tests/test_slides_com_real.py` is the live verification harness. It creates a

@@ -286,8 +286,36 @@ def test_every_registered_slides_operation_against_real_powerpoint(real_powerpoi
         presentation.Slides(render_index).Export(str(rendered), "PNG", 1280, 720)
         _assert_rendered_slide(rendered)
 
-    assert SLIDES_COM_OPERATIONS - executed == set()
+    # Creation has a separate disposable-target test because it does not act
+    # on the shared open presentation used by the operation matrix below.
+    assert SLIDES_COM_OPERATIONS - executed == {"slides_live_create_presentation"}
     expected_screenshots = 1 + sum(operation in SLIDES_COM_MUTATING_OPERATIONS for operation, _ in cases if operation != "slides_screen_capture")
     assert len(list(screenshot_root.glob("*.png"))) == expected_screenshots
     presentation = None
     adapter = None
+
+
+def test_create_powerpoint_presentation_from_scratch_against_real_powerpoint(real_powerpoint, tmp_path):
+    target = tmp_path / "created-from-scratch.pptx"
+    plan = Plan.from_dict(
+        {
+            "schema": "white-collar.plan/v1",
+            "app": "slides",
+            "target": {"path": str(target)},
+            "policy": "review",
+            "operations": [{"op": "slides_live_create_presentation"}],
+            "write": {"mode": "create"},
+        }
+    )
+    adapter = PowerPointComAdapter(app_factory=lambda: real_powerpoint)
+
+    preview = adapter.apply(plan, dry_run=True)
+    assert preview["written"] is False
+    assert not target.exists()
+
+    value = adapter.apply(plan, dry_run=False)
+    assert value["backend"] == "powerpoint-com"
+    assert value["operations"][0]["op"] == "slides_live_create_presentation"
+    assert value["operations"][0]["created"] is True
+    assert value["operations"][0]["slides"] == 1
+    _assert_valid_copy(real_powerpoint, target)

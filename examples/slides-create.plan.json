@@ -1,0 +1,16 @@
+{
+  "schema": "white-collar.plan/v1",
+  "app": "slides",
+  "target": {
+    "path": "C:/work/new-deck.pptx"
+  },
+  "policy": "review",
+  "operations": [
+    {
+      "op": "slides_live_create_presentation"
+    }
+  ],
+  "write": {
+    "mode": "create"
+  }
+}

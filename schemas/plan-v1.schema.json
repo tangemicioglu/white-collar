@@ -126,6 +126,12 @@
         {
           "type": "object",
           "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {"mode": {"const": "create"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
           "required": ["mode", "snapshot"],
           "properties": {"mode": {"const": "in-place"}, "snapshot": {"type": "string", "minLength": 1}}
         }

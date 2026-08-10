@@ -69,7 +69,7 @@ class MailTarget:
 
 @dataclass(frozen=True)
 class WriteIntent:
-    mode: Literal["none", "save-as", "in-place"]
+    mode: Literal["none", "create", "save-as", "in-place"]
     path: str | None = None
     snapshot: str | None = None
 
@@ -85,6 +85,10 @@ class WriteIntent:
             return cls("none")
         if isinstance(target, MailTarget):
             raise ValidationError("mail plans must use write.mode 'none'")
+        if mode == "create":
+            if raw.get("path") is not None or raw.get("snapshot") is not None:
+                raise ValidationError("write.create does not accept write.path or write.snapshot")
+            return cls("create")
         if mode == "save-as":
             path = _absolute_path(raw.get("path"), "write.path")
             if Path(path) == Path(target.path):
@@ -99,7 +103,7 @@ class WriteIntent:
             if raw.get("path") is not None:
                 raise ValidationError("in-place does not accept write.path")
             return cls("in-place", snapshot=snapshot)
-        raise ValidationError("write.mode must be 'save-as' or 'in-place'")
+        raise ValidationError("write.mode must be 'create', 'save-as', or 'in-place'")
 
 
 @dataclass(frozen=True)

@@ -15,6 +15,17 @@ native `Slide.Export` and writes `slide-1.png`, `slide-2.png`, and so on;
 `pdf2image` is not required for normal CLI slide viewing. Existing outputs are
 not overwritten.
 
+## Create a blank presentation
+
+```powershell
+white-collar slides create --output C:\work\new-deck.pptx --dry-run
+white-collar slides create --output C:\work\new-deck.pptx
+```
+
+The command creates a valid `.pptx` with one blank slide through PowerPoint
+COM, refuses an existing output, and closes the new presentation after saving.
+It does not require an existing source presentation or an open target.
+
 ## Plans
 
 Use `slides apply --plan PLAN.json` for bounded semantic operations:
@@ -34,8 +45,9 @@ Use `slides apply --plan PLAN.json` for bounded semantic operations:
 ```
 
 Run `white-collar slides apply --plan PLAN.json --dry-run` before executing.
-Save-as is `review`; in-place requires `edit` and a distinct snapshot. The
-target deck must already be open in PowerPoint for live mutation.
+Save-as and creation are `review`; in-place requires `edit` and a distinct
+snapshot. The target deck must already be open in PowerPoint for live mutation
+of an existing presentation.
 
 ## Semantic catalog
 

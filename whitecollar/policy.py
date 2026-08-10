@@ -20,16 +20,17 @@ class PolicyProfile:
     name: str
     allow_read: bool
     allow_dry_run: bool
+    allow_create: bool
     allow_save_as: bool
     allow_in_place: bool
     capabilities: frozenset[str]
 
 
 PROFILES = {
-    "read-only": PolicyProfile("read-only", True, False, False, False, PROFILE_CAPABILITIES["read-only"]),
-    "review": PolicyProfile("review", True, True, True, False, PROFILE_CAPABILITIES["review"]),
-    "edit": PolicyProfile("edit", True, True, True, True, PROFILE_CAPABILITIES["edit"]),
-    "send": PolicyProfile("send", True, True, False, False, PROFILE_CAPABILITIES["send"]),
+    "read-only": PolicyProfile("read-only", True, False, False, False, False, PROFILE_CAPABILITIES["read-only"]),
+    "review": PolicyProfile("review", True, True, True, True, False, PROFILE_CAPABILITIES["review"]),
+    "edit": PolicyProfile("edit", True, True, True, True, True, PROFILE_CAPABILITIES["edit"]),
+    "send": PolicyProfile("send", True, True, False, False, False, PROFILE_CAPABILITIES["send"]),
 }
 
 
@@ -86,6 +87,17 @@ def authorize_plan(
         mutating_operations = SLIDES_COM_MUTATING_OPERATIONS
         read_operation = is_slides_read_operation
         app_name = "PowerPoint"
+    creation_operations = {
+        "word_live_create_document",
+        "slides_live_create_presentation",
+    }
+    if operations & creation_operations:
+        if len(operations) != 1:
+            raise PolicyError("create operations must be standalone plans")
+        if plan.write.mode != "create":
+            raise PolicyError("create operations require write.mode 'create'")
+    elif plan.write.mode == "create":
+        raise PolicyError("write.mode 'create' requires a create operation")
     is_mutation = any(operation in mutating_operations or operation == "replace_text" for operation in operations)
     if not is_mutation and plan.write.mode != "none":
         raise PolicyError(f"read-only {app_name} operations must use write.mode 'none'")
@@ -144,6 +156,8 @@ def authorize_plan(
         raise PolicyError(f"mutating {app_name} operations require save-as or in-place write intent")
     if plan.write.mode == "save-as" and not profile.allow_save_as:
         raise PolicyError(f"policy {plan.policy!r} does not allow save-as writes")
+    if plan.write.mode == "create" and not profile.allow_create:
+        raise PolicyError(f"policy {plan.policy!r} does not allow create writes")
     if plan.write.mode == "in-place" and not profile.allow_in_place:
         raise PolicyError(f"policy {plan.policy!r} does not allow in-place writes")
     for operation in operations:

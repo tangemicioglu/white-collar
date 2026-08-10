@@ -31,13 +31,17 @@ POWERSHELL_COMPLETION = textwrap.dedent(
         } elseif ($tokens[-1] -eq '--shell') {
             $options = @('powershell')
         } elseif ($tokens[0] -eq 'word') {
-            if ($tokens.Count -eq 1) { $options = @('inspect', 'apply', 'replace') }
+            if ($tokens.Count -eq 1) { $options = @('create', 'inspect', 'apply', 'replace') }
+            elseif ($tokens[1] -eq 'create') { $options = @('--output', '--policy', '--dry-run', '--backend', '--help') }
             elseif ($tokens[1] -eq 'inspect') { $options = @('--policy', '--backend', '--render-dir', '--help') }
             elseif ($tokens[1] -eq 'apply') { $options = @('--plan', '--dry-run', '--backend', '--help') }
             elseif ($tokens[1] -eq 'replace') { $options = @('--target', '--find', '--replace', '--occurrence', '--output', '--in-place', '--snapshot', '--policy', '--dry-run', '--backend', '--help') }
         } elseif ($tokens[0] -eq 'slides') {
-            if ($tokens.Count -eq 1) { $options = @('inspect', 'apply') }
-            else { $options = @('--plan', '--dry-run', '--backend', '--render-dir', '--policy', '--help') }
+            if ($tokens.Count -eq 1) { $options = @('create', 'inspect', 'apply', 'replace') }
+            elseif ($tokens[1] -eq 'create') { $options = @('--output', '--policy', '--dry-run', '--backend', '--help') }
+            elseif ($tokens[1] -eq 'inspect') { $options = @('--policy', '--backend', '--render-dir', '--help') }
+            elseif ($tokens[1] -eq 'apply') { $options = @('--plan', '--dry-run', '--backend', '--help') }
+            elseif ($tokens[1] -eq 'replace') { $options = @('--target', '--find', '--replace', '--occurrence', '--output', '--in-place', '--snapshot', '--policy', '--dry-run', '--backend', '--help') }
         } elseif ($tokens[0] -eq 'mail') {
             if ($tokens.Count -eq 1) { $options = @('search', 'read', 'apply', 'draft', 'send') }
             elseif ($tokens[1] -eq 'search') { $options = @('--query', '--limit', '--folder', '--policy', '--backend', '--help') }

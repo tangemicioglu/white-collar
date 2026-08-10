@@ -66,6 +66,11 @@ def build_parser() -> argparse.ArgumentParser:
     for app in ("word", "slides"):
         app_parser = apps.add_parser(app, help=f"inspect and edit {app} documents")
         commands = app_parser.add_subparsers(dest="action", required=True, parser_class=JsonArgumentParser)
+        create = commands.add_parser("create", help=f"create a blank {app} file through {app.title()} COM")
+        create.add_argument("--output", required=True, help=f"absolute .{'docx' if app == 'word' else 'pptx'} output path")
+        create.add_argument("--policy", choices=("review", "edit"), default="review")
+        create.add_argument("--dry-run", action="store_true")
+        create.add_argument("--backend", choices=("com",), default="com")
         inspect = commands.add_parser("inspect")
         inspect.add_argument("target")
         inspect.add_argument("--policy", choices=("read-only", "review", "edit"), default="read-only")
@@ -358,6 +363,27 @@ def _run(
             policy="setup",
             dry_run=False,
             data={"selections": selections, "authority": updated.to_dict()},
+        )
+    if args.app in {"word", "slides"} and args.action == "create":
+        target = Path(args.output).resolve()
+        operation = "word_live_create_document" if args.app == "word" else "slides_live_create_presentation"
+        plan = Plan.from_dict(
+            {
+                "schema": "white-collar.plan/v1",
+                "app": args.app,
+                "target": {"path": str(target)},
+                "policy": args.policy,
+                "operations": [{"op": operation}],
+                "write": {"mode": "create"},
+            }
+        )
+        return _shortcut_result(
+            plan,
+            command=command,
+            dry_run=args.dry_run,
+            adapters=adapters,
+            authority=authority,
+            backend=args.backend,
         )
     if args.app == "word" and args.action == "replace":
         target = Path(args.target).resolve()

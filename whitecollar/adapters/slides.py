@@ -38,6 +38,8 @@ class PowerPointComAdapter:
                 presentation.Close()
 
     def apply(self, plan: Plan, *, dry_run: bool) -> dict[str, Any]:
+        if any(operation["op"] == "slides_live_create_presentation" for operation in plan.operations):
+            return self._slides_live_create_presentation(plan, dry_run=dry_run)
         if dry_run and all(
             operation["op"] in SLIDES_COM_MUTATING_OPERATIONS or operation["op"] == "replace_text"
             for operation in plan.operations
@@ -70,6 +72,50 @@ class PowerPointComAdapter:
         if not dry_run and plan.write.mode != "none":
             self._commit_write(app, presentation, plan)
         return {"backend": "powerpoint-com", "written": not dry_run, "operations": operations}
+
+    def _slides_live_create_presentation(self, plan: Plan, *, dry_run: bool) -> dict[str, Any]:
+        if len(plan.operations) != 1 or plan.operations[0]["op"] != "slides_live_create_presentation":
+            raise ValidationError("slides_live_create_presentation must be a standalone plan")
+        target = Path(plan.target.path)
+        if target.suffix.lower() != ".pptx":
+            raise ValidationError("PowerPoint creation output must use the .pptx extension", details={"target": str(target)})
+        if target.exists():
+            raise ValidationError("creation output already exists", details={"target": str(target)})
+        if dry_run:
+            return {
+                "backend": "powerpoint-com",
+                "written": False,
+                "operations": [{"op": "slides_live_create_presentation", "dry_run": True, "args": {}}],
+            }
+        app = self._get_app()
+        presentation = None
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            presentation = app.Presentations.Add(True)
+            presentation.Slides.Add(1, 12)  # ppLayoutBlank: a usable blank first slide.
+            presentation.SaveAs(FileName=str(target), FileFormat=24)  # ppSaveAsOpenXMLPresentation.
+            if not target.is_file():
+                raise ValidationError("PowerPoint did not create the requested presentation", details={"target": str(target)})
+            operation = {
+                "op": "slides_live_create_presentation",
+                "created": True,
+                "path": str(target),
+                "slides": int(_safe_value(presentation.Slides, "Count", 0)),
+            }
+            return {"backend": "powerpoint-com", "written": True, "operations": [operation]}
+        except ValidationError:
+            raise
+        except Exception as exc:
+            raise ValidationError(
+                "PowerPoint could not create the requested presentation",
+                details={"target": str(target), "reason": str(exc)},
+            ) from exc
+        finally:
+            if presentation is not None:
+                try:
+                    presentation.Close()
+                except Exception:
+                    pass
 
     def _prepare_write(self, presentation: Any, plan: Plan) -> None:
         if plan.write.mode != "in-place":

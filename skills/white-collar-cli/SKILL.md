@@ -21,8 +21,10 @@ to arbitrary COM automation or to upstream MCP servers.
 ## Command routing
 
 - Word document text, rendering, or metadata: `word inspect`.
+- New blank Word document: `word create --output FILE.docx`.
 - Simple Word replacement: `word replace`; complex or live Word semantics: `word apply --plan`.
 - PowerPoint inspection or slide images: `slides inspect`; semantic live edits: `slides apply --plan`.
+- New blank PowerPoint presentation: `slides create --output FILE.pptx`.
 - Outlook metadata search or read: `mail search` and `mail read`.
 - Outlook draft composition: `mail draft`; sending an existing draft: `mail send`.
 - Permission readiness: `doctor`, `permissions show --redacted`, or `permissions check`.
@@ -30,7 +32,7 @@ to arbitrary COM automation or to upstream MCP servers.
 
 ## Default policy and authority
 
-- Word/PowerPoint: `read-only` reads; `review` save-as writes; `edit` in-place writes with a snapshot. All operations use the live COM adapters; screen capture and in-place edits can still need authority.
+- Word/PowerPoint: `read-only` reads; `review` creation and save-as writes; `edit` in-place writes with a snapshot. All operations use the live COM adapters; screen capture and in-place edits can still need authority.
 - Outlook: `read-only` is the default. Metadata search/read is read-only; body reads are sensitive and need `review` or `edit`; mark read/unread is `review`; move/delete and draft composition are `edit`; sending is `send` only.
 - A plan's policy is never authority. Do not bypass a denial by changing the plan, backend, target, or a local file.
 - Use exact file targets for Office work and exact message IDs for mail work. `mailbox` is a deliberately broad human-configured scope, not an agent shortcut.

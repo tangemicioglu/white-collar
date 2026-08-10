@@ -1,0 +1,16 @@
+{
+  "schema": "white-collar.plan/v1",
+  "app": "word",
+  "target": {
+    "path": "C:/work/new-brief.docx"
+  },
+  "policy": "review",
+  "operations": [
+    {
+      "op": "word_live_create_document"
+    }
+  ],
+  "write": {
+    "mode": "create"
+  }
+}

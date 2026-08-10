@@ -352,10 +352,36 @@ def test_every_registered_word_operation_against_real_word(real_word, tmp_path):
             _assert_screenshot(screenshot)
             _assert_valid_word_copy(real_word, artifact_root / f"screen-source-{sequence * 1000:03d}.docx")
 
-    assert WORD_COM_OPERATIONS - executed == set()
+    # Creation has a separate disposable-target test because it does not act
+    # on the shared open document used by the operation matrix below.
+    assert WORD_COM_OPERATIONS - executed == {"word_live_create_document"}
     expected_screenshots = 1 + sum(
         operation in WORD_COM_MUTATING_OPERATIONS for operation, _ in cases if operation != "word_screen_capture"
     )
     assert len(list(screenshot_root.glob("*.png"))) == expected_screenshots
     document = None
     adapter = None
+
+
+def test_create_word_document_from_scratch_against_real_word(real_word, tmp_path):
+    target = tmp_path / "created-from-scratch.docx"
+    plan = Plan.from_dict(
+        {
+            "schema": "white-collar.plan/v1",
+            "app": "word",
+            "target": {"path": str(target)},
+            "policy": "review",
+            "operations": [{"op": "word_live_create_document"}],
+            "write": {"mode": "create"},
+        }
+    )
+    adapter = Win32WordComAdapter(app_factory=lambda: real_word)
+
+    preview = adapter.apply(plan, dry_run=True)
+    assert preview["written"] is False
+    assert not target.exists()
+
+    value = adapter.apply(plan, dry_run=False)
+    assert value["backend"] == "word-com"
+    assert value["operations"] == [{"op": "word_live_create_document", "created": True, "path": str(target)}]
+    _assert_valid_word_copy(real_word, target)

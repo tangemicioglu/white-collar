@@ -52,6 +52,8 @@ class Win32WordComAdapter:
                 doc.Close(SaveChanges=False)
 
     def apply(self, plan: Plan, *, dry_run: bool) -> dict[str, Any]:
+        if any(operation["op"] == "word_live_create_document" for operation in plan.operations):
+            return self._word_live_create_document(plan, dry_run=dry_run)
         if dry_run and all(operation["op"] in WORD_COM_MUTATING_OPERATIONS or operation["op"] == "replace_text" for operation in plan.operations):
             return {
                 "backend": "word-com",
@@ -92,6 +94,48 @@ class Win32WordComAdapter:
         if not dry_run and doc is not None and plan.write.mode != "none":
             self._commit_write(app, doc, plan)
         return {"backend": "word-com", "written": not dry_run, "operations": operations}
+
+    def _word_live_create_document(self, plan: Plan, *, dry_run: bool) -> dict[str, Any]:
+        if len(plan.operations) != 1 or plan.operations[0]["op"] != "word_live_create_document":
+            raise ValidationError("word_live_create_document must be a standalone plan")
+        target = Path(plan.target.path)
+        if target.suffix.lower() != ".docx":
+            raise ValidationError("Word creation output must use the .docx extension", details={"target": str(target)})
+        if target.exists():
+            raise ValidationError("creation output already exists", details={"target": str(target)})
+        if dry_run:
+            return {
+                "backend": "word-com",
+                "written": False,
+                "operations": [{"op": "word_live_create_document", "dry_run": True, "args": {}}],
+            }
+        app = self._get_app()
+        document = None
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            document = app.Documents.Add()
+            save_as2 = getattr(document, "SaveAs2", None)
+            if callable(save_as2):
+                save_as2(FileName=str(target), FileFormat=12)
+            else:
+                document.SaveAs(FileName=str(target), FileFormat=12)
+            if not target.is_file():
+                raise ValidationError("Word did not create the requested document", details={"target": str(target)})
+            operation = {"op": "word_live_create_document", "created": True, "path": str(target)}
+            return {"backend": "word-com", "written": True, "operations": [operation]}
+        except ValidationError:
+            raise
+        except Exception as exc:
+            raise ValidationError(
+                "Word could not create the requested document",
+                details={"target": str(target), "reason": str(exc)},
+            ) from exc
+        finally:
+            if document is not None:
+                try:
+                    document.Close(SaveChanges=False)
+                except Exception:
+                    pass
 
     def _preflight_target(self, plan: Plan) -> None:
         target = Path(plan.target.path)

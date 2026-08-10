@@ -34,6 +34,9 @@ For in-place Office writes, use `policy: "edit"` and
 `write: {"mode": "in-place", "snapshot": "..."}`. For live mail use an
 `id` target and `write.mode: "none"`.
 
+For a new blank Word or PowerPoint file, use the output path as the target, a
+standalone create operation, and `write.mode: "create"`.
+
 ## Result handling
 
 The minimal successful shape is:

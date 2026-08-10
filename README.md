@@ -17,10 +17,14 @@ raw OOXML or local mailbox backend in the public CLI:
 
 * `word inspect` opens a closed document read-only when needed and returns Word
   text, counts, size, and metadata.
+* `word create --output ...` creates a new blank, valid `.docx` through Word
+  COM without a source document.
 * `word apply --plan ...` and `word replace ...` operate through Word's live
   semantic range, formatting, comment, revision, layout, and save operations.
 * `slides inspect` and `slides apply --plan ...` operate through PowerPoint COM,
   including native slide rendering with `Slide.Export`.
+* `slides create --output ...` creates a new `.pptx` with one blank slide
+  through PowerPoint COM without a source presentation.
 * `mail search`, `mail read`, and bounded mail writes operate through Outlook
   Classic COM only; Outlook remains disabled until an explicit owner grant.
 * Save-as, snapshots, target hashes, dry-runs, policy checks, and validation are
@@ -59,6 +63,8 @@ responses omit that false-valued field to keep agent context small.
 
 ```powershell
 white-collar word inspect C:\work\brief.docx
+white-collar word create --output C:\work\new-brief.docx --dry-run
+white-collar word create --output C:\work\new-brief.docx
 white-collar word inspect C:\work\brief.docx --backend com --render-dir C:\work\brief-rendered
 white-collar word apply --plan C:\work\replace.plan.json --dry-run
 white-collar word replace --target C:\work\brief.docx --find Draft --replace Final --output C:\work\brief-reviewed.docx
@@ -67,6 +73,8 @@ white-collar word inspect C:\work\brief.docx --backend com
 white-collar word apply --plan C:\work\live.plan.json --backend com
 
 white-collar slides inspect C:\work\deck.pptx
+white-collar slides create --output C:\work\new-deck.pptx --dry-run
+white-collar slides create --output C:\work\new-deck.pptx
 white-collar slides inspect C:\work\deck.pptx --backend com
 white-collar slides inspect C:\work\deck.pptx --backend com --render-dir C:\work\deck-rendered
 white-collar slides apply --plan C:\work\slides.plan.json --dry-run
@@ -146,6 +154,20 @@ account target. The checked-in
 }
 ```
 
+Creation plans use the output path as their target, a standalone create
+operation, and `write.mode: "create"`:
+
+```json
+{
+  "schema": "white-collar.plan/v1",
+  "app": "word",
+  "target": {"path": "C:/work/new-brief.docx"},
+  "policy": "review",
+  "operations": [{"op": "word_live_create_document"}],
+  "write": {"mode": "create"}
+}
+```
+
 For an in-place edit, use the `edit` policy and name a snapshot explicitly:
 
 ```json
@@ -160,7 +182,7 @@ no field for a COM method, object path, macro, or arbitrary Office invocation.
 
 ## Safety model
 
-| Profile | Reads | Dry-run plans | Save-as writes | In-place writes |
+| Profile | Reads | Dry-run plans | Create/save-as writes | In-place writes |
 | --- | ---: | ---: | ---: | ---: |
 | `read-only` | yes | no | no | no |
 | `review` | yes | yes | yes | no |
@@ -168,8 +190,8 @@ no field for a COM method, object path, macro, or arbitrary Office invocation.
 | `send` | mail only | yes | no | no |
 
 The policy is embedded in every mutation plan and checked before an adapter is
-called. `review` is intended for agent workflows that produce a new artifact for
-human review. `edit` is the only profile that permits replacing the target, and
+called. `review` is intended for agent workflows that create or produce a new
+artifact for human review. `edit` is the only profile that permits replacing the target, and
 the plan must provide a distinct snapshot path. A plan's policy is a request;
 it is never an authority grant.
 
@@ -179,8 +201,8 @@ it is separate from `edit` and requires the `mail.write.send` capability.
 The CLI loads owner grants from Windows Credential Manager, not from a JSON
 configuration file. There is no plaintext-file fallback, no `--authority` path,
 and no checked-in grant file for an agent or human to edit. Word and PowerPoint
-have a built-in review-level grant for their COM workflows: reads, dry-runs, and
-save-as writes work by default. In-place replacement, screen capture, and
+have a built-in review-level grant for their COM workflows: reads, dry-runs,
+creation, and save-as writes work by default. In-place replacement, screen capture, and
 Outlook COM remain disabled until explicitly granted by the human owner.
 
 The permission layer maps finite app operations to a smaller shared capability
@@ -229,8 +251,10 @@ until a human owner enables it.
 The COM adapters cover the finite Word and PowerPoint semantic operation
 vocabularies documented in [the Word COM operation catalog](docs/word-com-operations.md)
 and [the PowerPoint COM operation catalog](docs/powerpoint-com-operations.md).
-They require the target file to already be open in the corresponding Office
-application for mutation plans. PowerPoint inspection can open a closed target
+Mutation plans against an existing file require the target to already be open
+in the corresponding Office application. The `word create` and `slides create`
+shortcuts use standalone COM creation plans and do not require an existing
+target. PowerPoint inspection can open a closed target
 read-only, and `slides inspect --backend com --render-dir <dir>` uses
 PowerPoint's native `Slide.Export` to write one clean PNG per slide; it does not
 require `pdf2image`. Word inspection can likewise open a closed target read-only,

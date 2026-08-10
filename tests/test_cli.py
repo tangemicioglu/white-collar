@@ -21,6 +21,13 @@ class FakeSlides:
         return {"slides": 7, "title": "Review", "render_dir": str(render_dir) if render_dir else None}
 
     def apply(self, plan, *, dry_run):
+        if plan.write.mode == "create":
+            if not dry_run:
+                Path(plan.target.path).write_bytes(b"fake-slides-output")
+            return {
+                "operations": [{"op": plan.operations[0]["op"], "created": not dry_run}],
+                "written": not dry_run,
+            }
         return {"changes": [{"operation": 0, "matches": 3}], "written": not dry_run}
 
 
@@ -31,11 +38,18 @@ class FakeWord:
     def apply(self, plan, *, dry_run):
         if not dry_run:
             source = plan.target.path
-            if plan.write.mode == "save-as":
+            if plan.write.mode == "create":
+                Path(source).write_bytes(b"fake-word-output")
+            elif plan.write.mode == "save-as":
                 Path(plan.write.path).write_bytes(b"fake-word-output")
             elif plan.write.mode == "in-place":
                 shutil.copy2(source, plan.write.snapshot)
                 Path(source).write_bytes(b"fake-word-output")
+        if plan.write.mode == "create":
+            return {
+                "operations": [{"op": plan.operations[0]["op"], "created": not dry_run}],
+                "written": not dry_run,
+            }
         return {"changes": [{"operation": 0, "matches": 1}], "written": not dry_run}
 
 
@@ -141,6 +155,32 @@ def test_word_apply_dry_run_smoke(make_docx, tmp_path, capsys):
     value = output(capsys)
     assert value["dry_run"] is True
     assert value["changes"][0]["matches"] == 1
+
+
+@pytest.mark.parametrize("app,extension", [("word", ".docx"), ("slides", ".pptx")])
+def test_create_shortcuts_use_versioned_create_plans(app, extension, tmp_path, capsys):
+    output_path = tmp_path / f"created{extension}"
+    assert main(
+        [app, "create", "--output", str(output_path), "--dry-run"],
+        adapters=adapters(),
+        authority=Authority.default(),
+    ) == 0
+    preview = output(capsys)
+    assert preview["command"] == f"{app}.create"
+    assert preview["policy"] == "review"
+    assert preview["dry_run"] is True
+    assert preview["data"]["written"] is False
+    assert preview["data"]["operations"][0]["op"].endswith("create_document") or preview["data"]["operations"][0]["op"].endswith("create_presentation")
+    assert not output_path.exists()
+
+    assert main(
+        [app, "create", "--output", str(output_path)],
+        adapters=adapters(),
+        authority=Authority.default(),
+    ) == 0
+    created = output(capsys)
+    assert created["data"]["written"] is True
+    assert output_path.is_file()
 
 
 def test_word_replace_shortcut_compiles_to_validated_plan(make_docx, tmp_path, capsys):

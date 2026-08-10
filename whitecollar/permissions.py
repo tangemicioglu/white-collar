@@ -51,12 +51,14 @@ CAPABILITIES: dict[str, Capability] = {
     "word.write.content": Capability("word.write.content", "word", "Change Word document content", "write", "file"),
     "word.write.comments": Capability("word.write.comments", "word", "Change Word comments", "write", "file"),
     "word.write.metadata": Capability("word.write.metadata", "word", "Change Word core properties", "write", "file"),
+    "word.write.create": Capability("word.write.create", "word", "Create a new Word document", "write", "file"),
     "word.write.save_as": Capability("word.write.save_as", "word", "Create a new Word output file", "write", "file"),
     "word.write.in_place": Capability("word.write.in_place", "word", "Replace the Word target after snapshot", "destructive", "file"),
     "slides.read": Capability("slides.read", "slides", "Read PowerPoint presentation structure and text", "read", "file"),
     "slides.render": Capability("slides.render", "slides", "Render PowerPoint slides to image files", "read", "file"),
     "slides.capture": Capability("slides.capture", "slides", "Capture the visible PowerPoint window", "sensitive", "file"),
     "slides.write.content": Capability("slides.write.content", "slides", "Change PowerPoint slide content", "write", "file"),
+    "slides.write.create": Capability("slides.write.create", "slides", "Create a new PowerPoint presentation", "write", "file"),
     "slides.write.save_as": Capability("slides.write.save_as", "slides", "Create a new PowerPoint output file", "write", "file"),
     "slides.write.in_place": Capability("slides.write.in_place", "slides", "Replace the PowerPoint target after snapshot", "destructive", "file"),
     "mail.metadata.read": Capability("mail.metadata.read", "mail", "Read mail headers and search metadata", "sensitive", "mailbox"),
@@ -73,6 +75,8 @@ def _operation_capability(app: str, operation: str) -> str:
     if operation == "replace_text":
         return f"{app}.write.content"
     if app == "word":
+        if operation == "word_live_create_document":
+            return "word.write.create"
         if operation in WORD_COM_READ_OPERATIONS:
             return "word.read"
         if operation == "word_screen_capture":
@@ -84,6 +88,8 @@ def _operation_capability(app: str, operation: str) -> str:
         if operation in WORD_COM_OPERATIONS:
             return "word.write.content"
     if app == "slides":
+        if operation == "slides_live_create_presentation":
+            return "slides.write.create"
         if operation in SLIDES_COM_READ_OPERATIONS:
             return "slides.read"
         if operation == "slides_screen_capture":
@@ -123,9 +129,11 @@ _REVIEW = _READ_ONLY | frozenset({
     "word.write.content",
     "word.write.comments",
     "word.write.metadata",
+    "word.write.create",
     "word.write.save_as",
     "slides.capture",
     "slides.write.content",
+    "slides.write.create",
     "slides.write.save_as",
     "mail.body.read",
     "mail.write.state",

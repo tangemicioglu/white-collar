@@ -183,12 +183,14 @@ def _builtin_grants() -> tuple[Grant, ...]:
         "word.write.content",
         "word.write.comments",
         "word.write.metadata",
+        "word.write.create",
         "word.write.save_as",
     )
     slides_review = (
         "slides.read",
         "slides.render",
         "slides.write.content",
+        "slides.write.create",
         "slides.write.save_as",
     )
     return (

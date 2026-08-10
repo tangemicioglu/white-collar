@@ -1,6 +1,7 @@
 """Finite semantic PowerPoint live-operation vocabulary."""
 
 SLIDES_COM_OPERATIONS = {
+    "slides_live_create_presentation",
     "slides_live_list_open",
     "slides_live_get_info",
     "slides_live_get_text",

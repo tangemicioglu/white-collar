@@ -9,9 +9,11 @@ a bounded shortcut.
 | User intent | Command | Default policy |
 | --- | --- | --- |
 | Read Word text or metadata | `white-collar word inspect FILE.docx` | `read-only` |
+| Create a blank Word document | `white-collar word create --output FILE.docx` | `review` |
 | Render Word pages | `white-collar word inspect FILE.docx --backend com --render-dir DIR` | `read-only` |
 | Replace simple Word text | `white-collar word replace --target IN --find FIND --replace REPLACE --output OUT` | `review` |
 | Inspect a PowerPoint | `white-collar slides inspect FILE.pptx` | `read-only` |
+| Create a blank PowerPoint presentation | `white-collar slides create --output FILE.pptx` | `review` |
 | Render PowerPoint slides | `white-collar slides inspect FILE.pptx --backend com --render-dir DIR` | `read-only` |
 | Apply supported Word/PowerPoint semantics | `word apply --plan PLAN` or `slides apply --plan PLAN` | From plan |
 | Search Outlook metadata | `white-collar mail search --query QUERY` | `read-only` |

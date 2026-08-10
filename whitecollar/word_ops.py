@@ -5,6 +5,7 @@ cannot be extended by putting an arbitrary method string in a plan.
 """
 
 WORD_COM_OPERATIONS = {
+    "word_live_create_document",
     "word_live_insert_text",
     "word_live_delete_text",
     "word_live_replace_text",
