@@ -38,6 +38,20 @@ Their app-specific operation catalogs are documented in `docs/`.
 Windows, desktop Word/PowerPoint/Outlook as applicable, and Python 3.11 or newer
 are required for live use.
 
+### Install a published release
+
+The release workflow attaches a wheel and source distribution to each version
+tag. To install the current `0.1.0` wheel with the Office dependencies, run:
+
+```powershell
+py -m pip install "white-collar[office] @ https://github.com/tangemicioglu/white-collar/releases/download/v0.1.0/white_collar-0.1.0-py3-none-any.whl"
+white-collar doctor
+```
+
+Use a Python virtual environment when the installation must remain isolated.
+The command installs the CLI and the optional `pywin32` and `Pillow`
+dependencies. Microsoft Office is still a separate Windows prerequisite.
+
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -51,6 +65,22 @@ dependencies before using the CLI against real files:
 ```powershell
 python -m pip install -e ".[office]"
 ```
+
+### Build and publish a release
+
+Update `[project].version` in `pyproject.toml`, commit the change, and create a
+matching version tag. The release workflow requires the `v` prefix:
+
+```powershell
+git tag v0.1.0
+git push origin main --tags
+```
+
+The workflow verifies the tag, runs the Office-free test suite, builds and
+validates the wheel and source distribution, installs the wheel on Windows,
+and creates the GitHub release with both packages attached. It does not run
+live Office integration tests because hosted runners do not provide the user's
+desktop Office installation.
 
 ## Commands
 
