@@ -172,6 +172,19 @@ def _assert_operation_behavior(app, target: Path, operation: str, args: dict, va
         assert "Footer" in str(document.Sections(1).Footers(1).Range.Text)
     elif operation == "word_live_add_watermark":
         assert document.Sections(1).Headers(1).Shapes.Count >= 1
+    elif operation == "word_live_remove_watermark":
+        remaining = 0
+        for section in document.Sections:
+            for kind in (1, 2, 3):
+                for area in (section.Headers(kind), section.Footers(kind)):
+                    for shape in area.Shapes:
+                        try:
+                            value = str(shape.TextEffect.Text or "").strip()
+                        except Exception:
+                            value = ""
+                        remaining += value.casefold() == args.get("text", "DRAFT").casefold()
+        assert remaining == 0
+        assert result["removed"] >= 1
     elif operation == "word_live_add_page_numbers":
         container = document.Sections(1).Headers(1) if args.get("position") == "header" else document.Sections(1).Footers(1)
         assert container.Range.Fields.Count >= (2 if args.get("include_total") else 1)
@@ -286,6 +299,7 @@ def test_every_registered_word_operation_against_real_word(real_word, tmp_path):
         ("word_live_set_page_layout", {"orientation": "portrait", "page_width_inches": 8.5, "page_height_inches": 11}),
         ("word_live_add_header_footer", {"header_text": "Header", "footer_text": "Footer"}),
         ("word_live_add_watermark", {"text": "DRAFT"}),
+        ("word_live_remove_watermark", {"text": "DRAFT"}),
         ("word_live_add_page_numbers", {"position": "footer", "alignment": "center", "prefix": "Page "}),
         ("word_live_add_page_numbers", {"position": "header", "alignment": "right", "prefix": "Page ", "include_total": True, "suffix": " total"}),
         ("word_live_add_section_break", {"break_type": "new_page"}),
@@ -361,6 +375,49 @@ def test_every_registered_word_operation_against_real_word(real_word, tmp_path):
     assert len(list(screenshot_root.glob("*.png"))) == expected_screenshots
     document = None
     adapter = None
+
+
+def test_remove_watermark_removes_header_and_footer_with_tracking(real_word, tmp_path):
+    document_path = tmp_path / "watermark-header-footer.docx"
+    document = _new_document(real_word, document_path)
+    header_shape = document.Sections(1).Headers(1).Shapes.AddTextEffect(
+        0, "DRAFT", "Calibri", 72, False, False, 0, 0
+    )
+    footer_shape = document.Sections(1).Footers(1).Shapes.AddTextEffect(
+        0, "DRAFT", "Calibri", 72, False, False, 0, 0
+    )
+    header_shape = None
+    footer_shape = None
+    document.TrackRevisions = True
+    document.Save()
+    adapter = Win32WordComAdapter(app_factory=lambda: real_word)
+    plan = _plan(
+        document_path,
+        "word_live_remove_watermark",
+        {"text": "DRAFT", "position": "both"},
+        tmp_path / "watermark-artifacts",
+        1,
+    )
+
+    try:
+        value = adapter.apply(plan, dry_run=False)
+        current = _current_document(real_word, document_path)
+        remaining = []
+        for section in current.Sections:
+            for kind in (1, 2, 3):
+                for area in (section.Headers(kind), section.Footers(kind)):
+                    for shape in area.Shapes:
+                        try:
+                            shape_text = str(shape.TextEffect.Text or "").strip()
+                        except Exception:
+                            shape_text = ""
+                        if shape_text.casefold() == "draft":
+                            remaining.append(shape_text)
+        assert value["operations"][0]["removed"] >= 2
+        assert remaining == []
+        assert bool(current.TrackRevisions) is True
+    finally:
+        document.Close(SaveChanges=False)
 
 
 def test_create_word_document_from_scratch_against_real_word(real_word, tmp_path):

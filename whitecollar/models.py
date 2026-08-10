@@ -178,6 +178,24 @@ def _validate_operation(app: str, raw: Any, index: int) -> dict[str, Any]:
         args = raw.get("args", {})
         if not isinstance(args, dict):
             raise ValidationError(f"{context}.args must be an object")
+        if operation == "word_live_remove_watermark":
+            _expect_keys(
+                args,
+                required=set(),
+                optional={"text", "section_index", "position"},
+                context=f"{context}.args",
+            )
+            if "text" in args and (not isinstance(args["text"], str) or not args["text"].strip()):
+                raise ValidationError(f"{context}.args.text must be a non-empty string")
+            if "section_index" in args and (
+                isinstance(args["section_index"], bool)
+                or not isinstance(args["section_index"], int)
+                or args["section_index"] < 1
+            ):
+                raise ValidationError(f"{context}.args.section_index must be a positive integer")
+            if args.get("position", "both") not in {"header", "footer", "both"}:
+                raise ValidationError(f"{context}.args.position must be 'header', 'footer', or 'both'")
+            return {"op": operation, "args": args}
         missing = WORD_COM_REQUIRED_ARGS.get(operation, set()) - set(args)
         if missing:
             raise ValidationError(f"{context}.args is missing required field(s): {', '.join(sorted(missing))}")

@@ -53,6 +53,15 @@ def test_edit_allows_in_place_only_with_explicit_snapshot():
         Plan.from_dict(raw)
 
 
+def test_remove_watermark_is_a_bounded_word_mutation():
+    raw = json.loads(Path("tests/fixtures/word-replace-plan.json").read_text(encoding="utf-8"))
+    raw["operations"] = [{"op": "word_live_remove_watermark", "args": {"text": "DRAFT"}}]
+    authorize_plan(Plan.from_dict(raw), dry_run=False)
+    raw["policy"] = "read-only"
+    with pytest.raises(PolicyError, match="including dry-runs"):
+        authorize_plan(Plan.from_dict(raw), dry_run=True)
+
+
 def test_word_com_read_operation_uses_read_only_and_no_write_intent():
     raw = json.loads(Path("tests/fixtures/word-replace-plan.json").read_text(encoding="utf-8"))
     raw["operations"] = [{"op": "word_live_get_text", "args": {}}]

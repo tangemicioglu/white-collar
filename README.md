@@ -20,7 +20,8 @@ raw OOXML or local mailbox backend in the public CLI:
 * `word create --output ...` creates a new blank, valid `.docx` through Word
   COM without a source document.
 * `word apply --plan ...` and `word replace ...` operate through Word's live
-  semantic range, formatting, comment, revision, layout, and save operations.
+  semantic range, formatting, comment, revision, layout, watermark, and save
+  operations.
 * `slides inspect` and `slides apply --plan ...` operate through PowerPoint COM,
   including native slide rendering with `Slide.Export`.
 * `slides create --output ...` creates a new `.pptx` with one blank slide
@@ -97,6 +98,7 @@ white-collar word create --output C:\work\new-brief.docx --dry-run
 white-collar word create --output C:\work\new-brief.docx
 white-collar word inspect C:\work\brief.docx --backend com --render-dir C:\work\brief-rendered
 white-collar word apply --plan C:\work\replace.plan.json --dry-run
+white-collar word apply --plan C:\work\remove-draft-watermark.plan.json --dry-run
 white-collar word replace --target C:\work\brief.docx --find Draft --replace Final --output C:\work\brief-reviewed.docx
 white-collar word apply --plan C:\work\replace.plan.json
 white-collar word inspect C:\work\brief.docx --backend com

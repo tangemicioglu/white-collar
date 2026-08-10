@@ -157,6 +157,15 @@ def test_word_apply_dry_run_smoke(make_docx, tmp_path, capsys):
     assert value["changes"][0]["matches"] == 1
 
 
+def test_word_remove_watermark_plan_is_accepted_by_cli(tmp_path, capsys):
+    plan_path = Path("tests/fixtures/word-remove-watermark-plan.json")
+    assert invoke(["word", "apply", "--plan", str(plan_path), "--dry-run"], adapters=adapters()) == 0
+    value = output(capsys)
+    assert value["command"] == "word.apply"
+    assert value["policy"] == "review"
+    assert value["dry_run"] is True
+
+
 @pytest.mark.parametrize("app,extension", [("word", ".docx"), ("slides", ".pptx")])
 def test_create_shortcuts_use_versioned_create_plans(app, extension, tmp_path, capsys):
     output_path = tmp_path / f"created{extension}"

@@ -115,6 +115,50 @@ class FakeApp:
         self.UndoRecord = FakeUndoRecord()
 
 
+class FakeShapes:
+    def __init__(self, texts):
+        self.items = []
+        for text in texts:
+            shape = SimpleNamespace(TextEffect=SimpleNamespace(Text=text))
+            shape.Delete = lambda shape=shape: self.items.remove(shape)
+            self.items.append(shape)
+
+    @property
+    def Count(self):
+        return len(self.items)
+
+    def __iter__(self):
+        return iter(list(self.items))
+
+
+class FakeHeaderFooter:
+    def __init__(self, texts):
+        self.Shapes = FakeShapes(texts)
+
+
+class FakeWatermarkSection:
+    def __init__(self, headers, footers):
+        self._headers = {1: FakeHeaderFooter(headers), 2: FakeHeaderFooter(()), 3: FakeHeaderFooter(())}
+        self._footers = {1: FakeHeaderFooter(footers), 2: FakeHeaderFooter(()), 3: FakeHeaderFooter(())}
+
+    def Headers(self, kind):
+        return self._headers[kind]
+
+    def Footers(self, kind):
+        return self._footers[kind]
+
+
+class FakeWatermarkDoc(FakeDoc):
+    def __init__(self):
+        super().__init__()
+        self.TrackRevisions = True
+        self.Sections = Collection(FakeWatermarkSection(("DRAFT", "APPROVED"), ("DRAFT",)))
+        self.ActiveWindow = SimpleNamespace(View=SimpleNamespace(SeekView=0))
+
+    def Activate(self):
+        self.activated = True
+
+
 def plan_for(operation, args, *, policy="edit", write=None):
     return Plan.from_dict(
         {
@@ -181,6 +225,28 @@ def test_mutating_com_dry_run_never_dispatches_to_document():
     assert value["operations"][0]["dry_run"] is True
     assert calls == []
     assert app.UndoRecord.events == []
+
+
+def test_remove_watermark_deletes_exact_wordart_matches_and_restores_tracking():
+    app = SimpleNamespace(
+        document=FakeWatermarkDoc(),
+        UndoRecord=FakeUndoRecord(),
+    )
+    app.Documents = Collection(app.document)
+    adapter = Win32WordComAdapter(app_factory=lambda: app)
+    plan = plan_for("word_live_remove_watermark", {})
+
+    value = adapter.apply(plan, dry_run=False)
+
+    operation = value["operations"][0]
+    assert operation["removed"] == 2
+    assert operation["text"] == "DRAFT"
+    assert app.document.TrackRevisions is True
+    assert app.document.Sections(1).Headers(1).Shapes.Count == 1
+    assert app.document.Sections(1).Headers(1).Shapes.items[0].TextEffect.Text == "APPROVED"
+    assert app.document.Sections(1).Footers(1).Shapes.Count == 0
+    assert app.UndoRecord.events[0][0] == "start"
+    assert app.UndoRecord.events[-1][0] == "end"
 
 
 def test_com_preflight_rejects_existing_save_as_before_dispatching_operation(tmp_path):

@@ -48,6 +48,7 @@ WORD_COM_OPERATIONS = {
     "word_live_set_paragraph_spacing",
     "word_live_add_bookmark",
     "word_live_add_watermark",
+    "word_live_remove_watermark",
     "word_live_undo",
     "word_screen_capture",
     # Present in the reference implementation and useful for metadata control.
@@ -86,6 +87,7 @@ WORD_COM_REQUIRED_ARGS = {
     "word_live_add_comment": set(),
     "word_live_reply_to_comment": set(),
     "word_live_add_bookmark": {"bookmark_name"},
+    "word_live_remove_watermark": set(),
     "word_screen_capture": {"output_path"},
 }
 

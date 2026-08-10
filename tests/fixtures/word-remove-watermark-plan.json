@@ -1,0 +1,21 @@
+{
+  "schema": "white-collar.plan/v1",
+  "app": "word",
+  "target": {
+    "path": "C:/fixtures/input.docx"
+  },
+  "policy": "review",
+  "operations": [
+    {
+      "op": "word_live_remove_watermark",
+      "args": {
+        "text": "DRAFT",
+        "position": "both"
+      }
+    }
+  ],
+  "write": {
+    "mode": "save-as",
+    "path": "C:/fixtures/reviewed.docx"
+  }
+}

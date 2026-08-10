@@ -860,6 +860,82 @@ class Win32WordComAdapter:
         shape.Top = -999995
         return {"op": "word_live_add_watermark", "text": args.get("text", "DRAFT"), "section": int(args.get("section_index", 1))}
 
+    def _word_live_remove_watermark(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
+        """Remove exact-text WordArt watermarks from header/footer stories.
+
+        Word rejects deleting a header WordArt object while revision tracking is
+        enabled.  Temporarily disabling tracking for this narrowly scoped
+        object deletion keeps the operation from creating a spurious tracked
+        change; the user's original tracking setting is restored in ``finally``.
+        """
+
+        text = args.get("text", "DRAFT")
+        if not isinstance(text, str) or not text.strip():
+            raise ValidationError("text must be a non-empty string")
+        position = str(args.get("position", "both")).lower()
+        if position not in {"header", "footer", "both"}:
+            raise ValidationError("position must be 'header', 'footer', or 'both'")
+
+        section_index = args.get("section_index")
+        sections = [_section(doc, args)] if section_index is not None else list(_iter_collection(doc.Sections))
+        previous_tracking = _safe_value(doc, "TrackRevisions", None)
+        view = None
+        removed = 0
+        inspected = 0
+        try:
+            try:
+                doc.Activate()
+            except Exception:
+                pass
+            if bool(previous_tracking):
+                doc.TrackRevisions = False
+            for section in sections:
+                for kind in (1, 2, 3):
+                    areas = []
+                    if position in {"header", "both"}:
+                        areas.append(("header", section.Headers(kind)))
+                    if position in {"footer", "both"}:
+                        areas.append(("footer", section.Footers(kind)))
+                    for area_name, area in areas:
+                        view = _enter_header_footer_view(doc, area_name)
+                        while True:
+                            matches = []
+                            for shape in list(_iter_collection(_safe_value(area, "Shapes", []))):
+                                inspected += 1
+                                if _shape_watermark_text(shape).casefold() == text.strip().casefold():
+                                    matches.append(shape)
+                            if not matches:
+                                break
+                            for shape in matches:
+                                try:
+                                    shape.Delete()
+                                except Exception as exc:
+                                    raise ValidationError(
+                                        "Word could not remove the matching watermark",
+                                        details={"text": text, "position": area_name, "section": section_index or "all"},
+                                    ) from exc
+                                removed += 1
+        finally:
+            if previous_tracking is not None:
+                try:
+                    doc.TrackRevisions = previous_tracking
+                except Exception:
+                    pass
+            if view is not None:
+                try:
+                    view.SeekView = 0
+                except Exception:
+                    pass
+        return {
+            "op": "word_live_remove_watermark",
+            "text": text,
+            "position": position,
+            "section": section_index or "all",
+            "inspected": inspected,
+            "removed": removed,
+            "track_changes_restored": previous_tracking is not None,
+        }
+
     def _word_live_undo(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
         count = max(1, int(args.get("count", args.get("times", 1))))
         for _ in range(count):
@@ -1152,6 +1228,36 @@ def _safe_value(obj: Any, attr: str, default: Any = None) -> Any:
         return value() if callable(value) and attr == "__call__" else value
     except Exception:
         return default
+
+
+def _shape_watermark_text(shape: Any) -> str:
+    text_effect = _safe_value(shape, "TextEffect")
+    value = _safe_value(text_effect, "Text") if text_effect is not None else None
+    if value is None or not str(value).strip():
+        text_frame = _safe_value(shape, "TextFrame")
+        text_range = _safe_value(text_frame, "TextRange") if text_frame is not None else None
+        value = _safe_value(text_range, "Text", "") if text_range is not None else ""
+    return str(value or "").replace("\r", "").replace("\a", "").strip()
+
+
+def _enter_header_footer_view(doc: Any, position: str) -> Any:
+    """Put Word in a story view when COM requires it for shape deletion."""
+
+    try:
+        window = _safe_value(doc, "ActiveWindow")
+        if window is None:
+            windows = _safe_value(doc, "Windows")
+            if _count(windows):
+                window = windows(1)
+        view = _safe_value(window, "View") if window is not None else None
+        if view is not None:
+            # Word accepts the current header/footer seek views for all linked
+            # header/footer stories exposed through the section collections.
+            view.SeekView = 9 if position == "header" else 10
+            return view
+    except Exception:
+        pass
+    return None
 
 
 def _style_name(paragraph: Any) -> str | None:

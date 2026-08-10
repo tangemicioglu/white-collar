@@ -10,7 +10,7 @@ method names and there is no arbitrary dispatch escape hatch.
 | Creation/editing | `word_live_create_document`, `word_live_insert_text`, `word_live_delete_text`, `word_live_replace_text`, `word_live_insert_paragraphs`, `word_live_format_text`, `word_live_add_table`, `word_live_format_table`, `word_live_apply_list`, `word_live_setup_heading_numbering`, `word_live_modify_table`, `word_live_save`, `word_live_toggle_track_changes`, `word_live_insert_image`, `word_live_insert_cross_reference`, `word_live_insert_equation` |
 | Reading | `word_live_list_open`, `word_live_get_text`, `word_live_take_snapshot`, `word_live_get_diff`, `word_live_snapshot_status`, `word_live_get_page_text`, `word_live_get_paragraph_format`, `word_live_get_info`, `word_live_find_text`, `word_live_get_undo_history`, `word_live_list_cross_reference_items`, `word_live_diagnose_layout` |
 | Comments/revisions | `word_live_get_comments`, `word_live_add_comment`, `word_live_list_revisions`, `word_live_reply_to_comment`, `word_live_resolve_comment`, `word_live_delete_comment`, `word_live_accept_revisions`, `word_live_reject_revisions` |
-| Layout | `word_live_set_page_layout`, `word_live_add_header_footer`, `word_live_add_page_numbers`, `word_live_add_section_break`, `word_live_set_paragraph_spacing`, `word_live_add_bookmark`, `word_live_add_watermark` |
+| Layout | `word_live_set_page_layout`, `word_live_add_header_footer`, `word_live_add_page_numbers`, `word_live_add_section_break`, `word_live_set_paragraph_spacing`, `word_live_add_bookmark`, `word_live_add_watermark`, `word_live_remove_watermark` |
 | Undo/capture | `word_live_undo`, `word_screen_capture` |
 | Metadata | `word_live_set_core_properties` |
 
@@ -46,6 +46,22 @@ Example plan operation:
   }
 }
 ```
+
+Remove an exact-text WordArt watermark from header/footer stories. The default
+text is `DRAFT`, the default position is both header and footer, and omitting
+`section_index` covers all sections. In-place removal still requires an
+explicit snapshot under the `edit` policy:
+
+```json
+{
+  "op": "word_live_remove_watermark",
+  "args": {"text": "DRAFT", "position": "both"}
+}
+```
+
+The adapter temporarily suspends Word revision tracking only while deleting
+the matching WordArt objects, then restores the document's prior tracking
+setting. Non-matching header/footer content is left untouched.
 
 Use `white-collar word apply --backend com --plan plan.json` on Windows with
 Microsoft Word and the optional `office` dependencies installed. Plans that
