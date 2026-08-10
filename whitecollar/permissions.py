@@ -9,6 +9,7 @@ generic COM security surface.
 
 from __future__ import annotations
 
+import ntpath
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -198,7 +199,7 @@ def _validate_target(capability: Capability, target: str | None) -> None:
             "capability requires a target",
             details={"capability": capability.name, "target_kind": capability.target},
         )
-    if capability.target == "file" and not Path(target).is_absolute():
+    if capability.target == "file" and not Path(target).is_absolute() and not ntpath.isabs(target):
         raise PolicyError(
             "file capabilities require an absolute target path",
             details={"capability": capability.name, "target": target},

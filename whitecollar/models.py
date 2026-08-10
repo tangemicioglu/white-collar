@@ -33,7 +33,10 @@ def _absolute_path(value: Any, field: str) -> str:
     # also recognize Windows drive and UNC paths explicitly.
     if not Path(value).is_absolute() and not ntpath.isabs(value):
         raise ValidationError(f"{field} must be an absolute path")
-    return str(Path(value))
+    # Normalize Windows paths with Windows semantics even when validation is
+    # running on a POSIX CI runner.  This keeps the representation passed to
+    # COM stable across platforms.
+    return ntpath.normpath(value) if ntpath.isabs(value) else str(Path(value))
 
 
 @dataclass(frozen=True)
