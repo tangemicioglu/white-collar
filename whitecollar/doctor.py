@@ -12,7 +12,12 @@ from .authority import Authority
 
 
 def _module_available(name: str) -> bool:
-    return importlib.util.find_spec(name) is not None
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ModuleNotFoundError):
+        # Some optional packages (notably pywin32) are only importable on
+        # Windows.  Diagnostics must report that absence rather than fail.
+        return False
 
 
 def diagnose(

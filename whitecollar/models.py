@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ntpath
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -27,7 +28,10 @@ def _expect_keys(raw: dict[str, Any], *, required: set[str], optional: set[str],
 def _absolute_path(value: Any, field: str) -> str:
     if not isinstance(value, str) or not value:
         raise ValidationError(f"{field} must be a non-empty string")
-    if not Path(value).is_absolute():
+    # Plans describe files consumed by Windows Office even when they are
+    # validated on a POSIX CI runner.  pathlib.Path follows the host OS, so
+    # also recognize Windows drive and UNC paths explicitly.
+    if not Path(value).is_absolute() and not ntpath.isabs(value):
         raise ValidationError(f"{field} must be an absolute path")
     return str(Path(value))
 
