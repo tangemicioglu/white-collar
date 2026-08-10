@@ -36,6 +36,8 @@ def _absolute_path(value: Any, field: str) -> str:
     # Normalize Windows paths with Windows semantics even when validation is
     # running on a POSIX CI runner.  This keeps the representation passed to
     # COM stable across platforms.
+    if Path(value).is_absolute():
+        return str(Path(value))
     return ntpath.normpath(value) if ntpath.isabs(value) else str(Path(value))
 
 
