@@ -34,6 +34,31 @@ raw OOXML or local mailbox backend in the public CLI:
 The COM adapters are finite semantic surfaces, not arbitrary COM dispatchers.
 Their app-specific operation catalogs are documented in `docs/`.
 
+## Recorded showcase
+
+The [recorded Office showcase](docs/demo/white-collar-office-demo.mp4) runs the
+same broad real-operation coverage as the Word and PowerPoint E2E gates. It
+shows the real windows changing through dozens of `white-collar ... apply
+--plan` operations: document structure, formatting, tables, comments,
+revisions, layout, metadata, media, slide objects, charts, notes, sections,
+motion, templates, and exports. The fixtures are disposable and synthetic;
+the edits are performed by the live COM adapters, not by a mock or a rendered
+animation.
+
+The CLI’s own `word_screen_capture` and `slides_screen_capture` operations
+remain sensitive, explicit-grant capabilities; the README video uses a local
+window recorder instead, so recording does not broaden the Office permission
+defaults.
+
+To reproduce it on Windows with desktop Office and `ffmpeg` on `PATH`:
+
+```powershell
+python scripts/record-office-demo.py --output docs/demo/white-collar-office-demo.mp4 --force
+```
+
+Recording is an optional demonstration tool. The regular CLI does not require
+`ffmpeg`.
+
 ## Setup
 
 Windows, desktop Word/PowerPoint/Outlook as applicable, and Python 3.11 or newer
