@@ -196,6 +196,90 @@ def _validate_operation(app: str, raw: Any, index: int) -> dict[str, Any]:
             if args.get("position", "both") not in {"header", "footer", "both"}:
                 raise ValidationError(f"{context}.args.position must be 'header', 'footer', or 'both'")
             return {"op": operation, "args": args}
+        if operation in {
+            "word_live_list_styles", "word_live_list_hyperlinks", "word_live_list_notes",
+            "word_live_list_content_controls", "word_live_get_protection", "word_live_update_fields",
+            "word_live_export_pdf",
+        }:
+            _expect_keys(args, required=set(), optional=set(), context=f"{context}.args")
+            return {"op": operation, "args": args}
+        if operation == "word_live_apply_style":
+            _expect_keys(
+                args,
+                required={"style_name"},
+                optional=_WORD_RANGE_ARGS,
+                context=f"{context}.args",
+            )
+            _require_non_empty_string(args, "style_name", f"{context}.args")
+            return {"op": operation, "args": args}
+        if operation == "word_live_add_hyperlink":
+            _expect_keys(
+                args,
+                required={"url"},
+                optional=_WORD_RANGE_ARGS | {"sub_address", "display_text"},
+                context=f"{context}.args",
+            )
+            _require_non_empty_string(args, "url", f"{context}.args")
+            return {"op": operation, "args": args}
+        if operation == "word_live_remove_hyperlink":
+            _expect_keys(
+                args,
+                required=set(),
+                optional=_WORD_RANGE_ARGS | {"hyperlink_index"},
+                context=f"{context}.args",
+            )
+            if "hyperlink_index" not in args and not _has_word_range(args):
+                raise ValidationError(f"{context}.args must identify a hyperlink or range")
+            return {"op": operation, "args": args}
+        if operation == "word_live_add_note":
+            _expect_keys(
+                args,
+                required={"text"},
+                optional=_WORD_RANGE_ARGS | {"note_type"},
+                context=f"{context}.args",
+            )
+            _require_non_empty_string(args, "text", f"{context}.args")
+            if args.get("note_type", "footnote") not in {"footnote", "endnote"}:
+                raise ValidationError(f"{context}.args.note_type must be 'footnote' or 'endnote'")
+            return {"op": operation, "args": args}
+        if operation == "word_live_insert_toc":
+            _expect_keys(
+                args,
+                required=set(),
+                optional={
+                    "position", "bookmark", "use_heading_styles", "upper_heading_level",
+                    "lower_heading_level", "right_align_page_numbers", "include_page_numbers",
+                },
+                context=f"{context}.args",
+            )
+            if args.get("position", "start") not in {"start", "end", "cursor"} and not isinstance(args.get("position"), int):
+                raise ValidationError(f"{context}.args.position must be start, end, cursor, or a character offset")
+            return {"op": operation, "args": args}
+        if operation == "word_live_set_content_control":
+            _expect_keys(
+                args,
+                required={"title", "value"},
+                optional=_WORD_RANGE_ARGS | {"tag", "create_if_missing"},
+                context=f"{context}.args",
+            )
+            _require_non_empty_string(args, "title", f"{context}.args")
+            if not isinstance(args["value"], str):
+                raise ValidationError(f"{context}.args.value must be a string")
+            return {"op": operation, "args": args}
+        if operation == "word_live_remove_header_footer":
+            _expect_keys(args, required=set(), optional={"position", "section_index"}, context=f"{context}.args")
+            if args.get("position", "both") not in {"header", "footer", "both"}:
+                raise ValidationError(f"{context}.args.position must be 'header', 'footer', or 'both'")
+            return {"op": operation, "args": args}
+        if operation == "word_live_set_protection":
+            _expect_keys(args, required={"protection_type"}, optional={"password"}, context=f"{context}.args")
+            if args["protection_type"] not in {"none", "tracked_changes", "comments", "forms", "read_only"}:
+                raise ValidationError(f"{context}.args.protection_type is invalid")
+            return {"op": operation, "args": args}
+        if operation in {"word_live_compare_documents", "word_live_merge_document"}:
+            _expect_keys(args, required={"source_path"}, optional=set(), context=f"{context}.args")
+            _absolute_path(args["source_path"], f"{context}.args.source_path")
+            return {"op": operation, "args": args}
         missing = WORD_COM_REQUIRED_ARGS.get(operation, set()) - set(args)
         if missing:
             raise ValidationError(f"{context}.args is missing required field(s): {', '.join(sorted(missing))}")
@@ -224,6 +308,7 @@ def _validate_operation(app: str, raw: Any, index: int) -> dict[str, Any]:
         missing = SLIDES_COM_REQUIRED_ARGS.get(operation, set()) - set(args)
         if missing:
             raise ValidationError(f"{context}.args is missing required field(s): {', '.join(sorted(missing))}")
+        _validate_slides_operation(operation, args, context)
         return {"op": operation, "args": args}
     if app == "mail" and operation in MAIL_COM_OPERATIONS:
         _expect_keys(raw, required={"op"}, optional={"args"}, context=context)
@@ -252,6 +337,161 @@ def _validate_operation(app: str, raw: Any, index: int) -> dict[str, Any]:
                     raise ValidationError(f"{context}.args.{field} must be a string")
         return {"op": operation, "args": args}
     raise ValidationError(f"{context}.op is unsupported for {app}")
+
+
+_WORD_RANGE_ARGS = {
+    "start", "end", "start_paragraph", "end_paragraph", "paragraph_index",
+    "bookmark", "target_text",
+}
+
+
+def _require_non_empty_string(args: dict[str, Any], name: str, context: str) -> None:
+    value = args.get(name)
+    if not isinstance(value, str) or not value.strip():
+        raise ValidationError(f"{context}.{name} must be a non-empty string")
+
+
+def _has_word_range(args: dict[str, Any]) -> bool:
+    return (
+        {"start", "end"}.issubset(args)
+        or "start_paragraph" in args
+        or "paragraph_index" in args
+        or "bookmark" in args
+        or "target_text" in args
+    )
+
+
+def _validate_slides_operation(operation: str, args: dict[str, Any], context: str) -> None:
+    shape_selector = {"shape_name", "shape_index", "slide_index"}
+    if operation in {"slides_live_get_masters", "slides_live_get_layouts", "slides_live_get_placeholders", "slides_live_get_notes", "slides_live_get_sections", "slides_live_get_media"}:
+        _expect_keys(
+            args,
+            required=set(),
+            optional={"slide_index", "master"},
+            context=f"{context}.args",
+        )
+    elif operation == "slides_live_apply_template":
+        _expect_keys(args, required={"source_path"}, optional=set(), context=f"{context}.args")
+        _absolute_path(args["source_path"], f"{context}.args.source_path")
+    elif operation in {"slides_live_save_template", "slides_live_export_pdf"}:
+        _expect_keys(args, required=set(), optional=set(), context=f"{context}.args")
+    elif operation == "slides_live_set_layout":
+        _expect_keys(args, required={"layout"}, optional={"slide_index", "master"}, context=f"{context}.args")
+    elif operation == "slides_live_group":
+        _expect_keys(args, required=set(), optional={"shape_names", "shape_indices", "slide_index"}, context=f"{context}.args")
+        _validate_shape_list(args, context)
+    elif operation == "slides_live_ungroup":
+        _expect_keys(args, required=set(), optional=shape_selector, context=f"{context}.args")
+        _require_shape_selector(args, context)
+    elif operation in {"slides_live_align", "slides_live_distribute"}:
+        required = "alignment" if operation == "slides_live_align" else "direction"
+        _expect_keys(
+            args,
+            required={required},
+            optional={"shape_names", "shape_indices", "slide_index", "relative_to_slide"},
+            context=f"{context}.args",
+        )
+        # Names and indexes are alternative bounded selectors.  Keep the
+        # public plan vocabulary independent of PowerPoint's ShapeRange API.
+        if "shape_names" not in args and "shape_indices" not in args:
+            raise ValidationError(f"{context}.args requires shape_names or shape_indices")
+        _validate_shape_list(args, context)
+    elif operation == "slides_live_z_order":
+        _expect_keys(args, required={"command"}, optional=shape_selector - {"slide_index"} | {"slide_index"}, context=f"{context}.args")
+        _require_shape_selector(args, context)
+    elif operation == "slides_live_crop_image":
+        _expect_keys(
+            args,
+            required=set(),
+            optional=shape_selector | {"left", "top", "right", "bottom"},
+            context=f"{context}.args",
+        )
+        _require_shape_selector(args, context)
+        if not any(key in args for key in ("left", "top", "right", "bottom")):
+            raise ValidationError(f"{context}.args requires at least one crop value")
+    elif operation == "slides_live_rotate_shape":
+        _expect_keys(args, required={"degrees"}, optional=shape_selector, context=f"{context}.args")
+        _require_shape_selector(args, context)
+    elif operation == "slides_live_add_section":
+        _expect_keys(args, required={"name"}, optional={"slide_index"}, context=f"{context}.args")
+    elif operation == "slides_live_delete_section":
+        _expect_keys(args, required=set(), optional={"section_index"}, context=f"{context}.args")
+    elif operation == "slides_live_set_slide_visibility":
+        _expect_keys(args, required={"visible"}, optional={"slide_index"}, context=f"{context}.args")
+    elif operation == "slides_live_set_slide_numbers":
+        _expect_keys(args, required={"visible"}, optional={"slide_index"}, context=f"{context}.args")
+    elif operation == "slides_live_add_table":
+        _expect_keys(
+            args,
+            required={"rows", "columns"},
+            optional={"slide_index", "name", "data", "left", "top", "width", "height"},
+            context=f"{context}.args",
+        )
+    elif operation == "slides_live_set_table_cell":
+        _expect_keys(args, required={"row", "column", "text"}, optional=shape_selector, context=f"{context}.args")
+        _require_shape_selector(args, context, include_slide=False)
+    elif operation == "slides_live_add_chart":
+        _expect_keys(
+            args,
+            required={"chart_type"},
+            optional={"slide_index", "name", "title", "data", "left", "top", "width", "height"},
+            context=f"{context}.args",
+        )
+        if "data" in args and (
+            not isinstance(args["data"], list)
+            or not args["data"]
+            or not all(isinstance(row, list) and row for row in args["data"])
+        ):
+            raise ValidationError(f"{context}.args.data must be a non-empty array of non-empty rows")
+    elif operation == "slides_live_add_smartart":
+        _expect_keys(args, required=set(), optional={"slide_index", "name", "layout", "left", "top", "width", "height", "nodes"}, context=f"{context}.args")
+        if "nodes" in args and (
+            not isinstance(args["nodes"], list)
+            or not args["nodes"]
+            or not all(isinstance(item, str) for item in args["nodes"])
+        ):
+            raise ValidationError(f"{context}.args.nodes must be a non-empty array of strings")
+    elif operation == "slides_live_add_media":
+        _expect_keys(args, required={"media_path"}, optional={"slide_index", "name", "left", "top", "width", "height"}, context=f"{context}.args")
+        _absolute_path(args["media_path"], f"{context}.args.media_path")
+    elif operation == "slides_live_set_hyperlink":
+        _expect_keys(args, required={"url"}, optional=shape_selector | {"sub_address"}, context=f"{context}.args")
+        _require_shape_selector(args, context)
+    elif operation == "slides_live_set_alt_text":
+        _expect_keys(args, required={"text"}, optional=shape_selector, context=f"{context}.args")
+        _require_shape_selector(args, context)
+    elif operation == "slides_live_set_transition":
+        _expect_keys(args, required={"effect"}, optional={"slide_index", "advance_on_click", "advance_seconds"}, context=f"{context}.args")
+    elif operation == "slides_live_add_animation":
+        _expect_keys(args, required={"effect"}, optional=shape_selector | {"trigger"}, context=f"{context}.args")
+        _require_shape_selector(args, context)
+
+
+def _validate_shape_list(args: dict[str, Any], context: str) -> None:
+    names = args.get("shape_names")
+    indices = args.get("shape_indices")
+    if names is None and indices is None:
+        raise ValidationError(f"{context}.args requires shape_names or shape_indices")
+    if names is not None and (
+        not isinstance(names, list)
+        or len(names) < 1
+        or not all(isinstance(item, str) and item for item in names)
+    ):
+        raise ValidationError(f"{context}.args.shape_names must be a non-empty array of strings")
+    if indices is not None and (
+        not isinstance(indices, list)
+        or len(indices) < 1
+        or not all(isinstance(item, int) and not isinstance(item, bool) and item > 0 for item in indices)
+    ):
+        raise ValidationError(f"{context}.args.shape_indices must be an array of positive integers")
+
+
+def _require_shape_selector(args: dict[str, Any], context: str, *, include_slide: bool = True) -> None:
+    allowed = {"shape_name", "shape_index"}
+    if include_slide:
+        allowed.add("slide_index")
+    if not any(key in args for key in allowed if key != "slide_index"):
+        raise ValidationError(f"{context}.args must identify a shape")
 
 
 def result(

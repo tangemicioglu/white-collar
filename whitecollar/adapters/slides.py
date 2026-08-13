@@ -9,6 +9,8 @@ from ..models import Plan
 from ..office_capture import capture_window
 from ..slides_ops import SLIDES_COM_MUTATING_OPERATIONS, SLIDES_COM_OPERATIONS
 
+SLIDES_COM_SELF_WRITING_OPERATIONS = {"slides_live_save_template", "slides_live_export_pdf"}
+
 
 class PowerPointComAdapter:
     """Finite semantic PowerPoint adapter; plans cannot name arbitrary COM calls."""
@@ -59,17 +61,22 @@ class PowerPointComAdapter:
         operations = []
         for operation in plan.operations:
             name = operation["op"]
+            args = _operation_args(operation)
+            if name in SLIDES_COM_SELF_WRITING_OPERATIONS and plan.write.path:
+                args.setdefault("output_path", plan.write.path)
             if name not in SLIDES_COM_OPERATIONS and name not in {"replace_text"}:
                 raise ValidationError(f"unsupported PowerPoint COM operation: {name}")
             if dry_run and name in SLIDES_COM_MUTATING_OPERATIONS:
-                operations.append({"op": name, "dry_run": True, "args": _operation_args(operation)})
+                operations.append({"op": name, "dry_run": True, "args": args})
                 continue
             dispatch_name = "slides_live_replace_text" if name == "replace_text" else name
             method = getattr(self, f"_{dispatch_name}", None)
             if method is None:
                 raise ValidationError(f"PowerPoint operation is registered but not implemented: {name}")
-            operations.append(method(app, presentation, _operation_args(operation)))
-        if not dry_run and plan.write.mode != "none":
+            operations.append(method(app, presentation, args))
+        if not dry_run and plan.write.mode != "none" and not any(
+            operation["op"] in SLIDES_COM_SELF_WRITING_OPERATIONS for operation in plan.operations
+        ):
             self._commit_write(app, presentation, plan)
         return {"backend": "powerpoint-com", "written": not dry_run, "operations": operations}
 
@@ -323,6 +330,356 @@ class PowerPointComAdapter:
             presentation.PageSetup.SlideHeight = float(args["height_inches"]) * 72
         return {"op": "slides_live_set_slide_size", "width": float(presentation.PageSetup.SlideWidth), "height": float(presentation.PageSetup.SlideHeight)}
 
+    def _slides_live_get_masters(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        masters = []
+        try:
+            designs = presentation.Designs
+        except Exception:
+            designs = []
+        for index, design in enumerate(_iter_collection(designs), start=1):
+            master = _safe_value(design, "SlideMaster")
+            masters.append({"index": index, "name": str(_safe_value(design, "Name", "")), "master_name": str(_safe_value(master, "Name", ""))})
+        if not masters:
+            try:
+                master = presentation.SlideMaster
+            except Exception:
+                master = None
+            if master is None and int(_safe_value(presentation.Slides, "Count", 0)):
+                master = _safe_value(presentation.Slides(1), "Master")
+            if master is not None:
+                masters.append({"index": 1, "name": "", "master_name": str(_safe_value(master, "Name", ""))})
+        return {"op": "slides_live_get_masters", "masters": masters, "count": len(masters)}
+
+    def _slides_live_get_layouts(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        master = _presentation_master(presentation, args)
+        layouts = []
+        for index, layout in enumerate(_iter_collection(master.CustomLayouts), start=1):
+            layouts.append({"index": index, "name": str(_safe_value(layout, "Name", "")), "type": _safe_value(layout, "Type")})
+        return {"op": "slides_live_get_layouts", "layouts": layouts, "count": len(layouts)}
+
+    def _slides_live_get_placeholders(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        if args.get("slide_index") is not None:
+            shapes = _slide(presentation, int(args["slide_index"])).Shapes
+        else:
+            shapes = _presentation_master(presentation, args).Shapes
+        placeholders = []
+        for index, shape in enumerate(_iter_collection(shapes), start=1):
+            if int(_safe_value(shape, "Type", 0)) != 14:
+                continue
+            placeholders.append({
+                "index": index,
+                "name": str(_safe_value(shape, "Name", "")),
+                "type": _safe_value(shape, "PlaceholderFormat.Type"),
+                "text": _shape_text(shape),
+            })
+        return {"op": "slides_live_get_placeholders", "placeholders": placeholders, "count": len(placeholders)}
+
+    def _slides_live_get_notes(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        indices = [int(args["slide_index"])] if args.get("slide_index") is not None else list(range(1, int(presentation.Slides.Count) + 1))
+        notes = []
+        for index in indices:
+            slide = _slide(presentation, index)
+            text = []
+            for shape in _iter_collection(slide.NotesPage.Shapes):
+                value = _shape_text(shape)
+                if value and int(_safe_value(shape, "PlaceholderFormat.Type", 0)) in {2, 3}:
+                    text.append(value)
+            notes.append({"slide_index": index, "text": "\n".join(text)})
+        return {"op": "slides_live_get_notes", "notes": notes, "count": len(notes)}
+
+    def _slides_live_get_sections(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            sections = presentation.SectionProperties
+        except Exception as exc:
+            raise ValidationError("PowerPoint presentation has no section properties") from exc
+        values = []
+        for index in range(1, int(_safe_value(sections, "Count", 0)) + 1):
+            values.append({
+                "index": index,
+                "name": str(sections.Name(index)),
+                "first_slide": int(sections.FirstSlide(index)),
+                "slides": int(sections.SlidesCount(index)),
+            })
+        return {"op": "slides_live_get_sections", "sections": values, "count": len(values)}
+
+    def _slides_live_get_media(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        values = []
+        for slide_index, slide in enumerate(_iter_collection(presentation.Slides), start=1):
+            for shape_index, shape in enumerate(_iter_collection(slide.Shapes), start=1):
+                shape_type = int(_safe_value(shape, "Type", 0))
+                media_type = _safe_value(shape, "MediaType")
+                if media_type is None and shape_type != 16:
+                    continue
+                values.append({
+                    "slide_index": slide_index,
+                    "shape_index": shape_index,
+                    "name": str(_safe_value(shape, "Name", "")),
+                    "shape_type": shape_type,
+                    "media_type": media_type,
+                    "path": str(_safe_value(shape, "LinkFormat.SourceFullName", "") or ""),
+                })
+        return {"op": "slides_live_get_media", "media": values, "count": len(values)}
+
+    def _slides_live_apply_template(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        source = Path(str(args["source_path"])).resolve()
+        if not source.is_file():
+            raise ValidationError("source_path does not exist", details={"source_path": str(source)})
+        presentation.ApplyTemplate(str(source))
+        return {"op": "slides_live_apply_template", "source_path": str(source), "applied": True}
+
+    def _slides_live_save_template(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        output = _absolute_output(str(args.get("output_path", "")))
+        if output.suffix.lower() != ".potx":
+            raise ValidationError("template output must use the .potx extension")
+        if output.exists():
+            raise ValidationError("template output already exists", details={"path": str(output)})
+        output.parent.mkdir(parents=True, exist_ok=True)
+        saved_copy = getattr(presentation, "SaveCopyAs", None)
+        try:
+            if callable(saved_copy):
+                saved_copy(FileName=str(output), FileFormat=26)  # ppSaveAsOpenXMLTemplate
+            else:
+                raise RuntimeError("SaveCopyAs is unavailable")
+        except Exception:
+            # Some Office builds expose SaveCopyAs but reject a format change.
+            # SaveAs is reliable, but changes the open presentation's identity;
+            # restore the original open file before returning to the caller.
+            source = Path(str(_safe_value(presentation, "FullName", "")))
+            presentation.SaveAs(FileName=str(output), FileFormat=26)  # ppSaveAsOpenXMLTemplate
+            if source.resolve() != output.resolve():
+                presentation.Close()
+                app.Presentations.Open(FileName=str(source), ReadOnly=False, Untitled=False, WithWindow=True)
+        if not output.is_file():
+            raise ValidationError("PowerPoint did not create the requested template", details={"path": str(output)})
+        return {"op": "slides_live_save_template", "path": str(output), "bytes": output.stat().st_size}
+
+    def _slides_live_set_layout(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        slide = _slide(presentation, int(args.get("slide_index", 1)))
+        layout = _find_layout(_presentation_master(presentation, args), args["layout"])
+        slide.CustomLayout = layout
+        return {"op": "slides_live_set_layout", "slide_index": int(args.get("slide_index", 1)), "layout": str(_safe_value(layout, "Name", args["layout"]))}
+
+    def _slides_live_group(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        slide = _slide(presentation, int(args.get("slide_index", 1)))
+        group = _shape_range(slide, args).Group()
+        return {"op": "slides_live_group", "slide_index": int(args.get("slide_index", 1)), "shape": str(_safe_value(group, "Name", ""))}
+
+    def _slides_live_ungroup(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        slide = _slide(presentation, int(args.get("slide_index", 1)))
+        shape = _shape(slide, args)
+        shape.Ungroup()
+        return {"op": "slides_live_ungroup", "slide_index": int(args.get("slide_index", 1)), "ungrouped": True}
+
+    def _slides_live_align(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        slide = _slide(presentation, int(args.get("slide_index", 1)))
+        command = _enum(args["alignment"], {"left": 0, "center": 1, "right": 2, "top": 3, "middle": 4, "bottom": 5}, "alignment")
+        _shape_range(slide, args).Align(command, bool(args.get("relative_to_slide", True)))
+        return {"op": "slides_live_align", "alignment": args["alignment"]}
+
+    def _slides_live_distribute(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        slide = _slide(presentation, int(args.get("slide_index", 1)))
+        direction = _enum(args["direction"], {"horizontal": 0, "vertical": 1}, "direction")
+        _shape_range(slide, args).Distribute(direction, bool(args.get("relative_to_slide", True)))
+        return {"op": "slides_live_distribute", "direction": args["direction"]}
+
+    def _slides_live_z_order(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        slide = _slide(presentation, int(args.get("slide_index", 1)))
+        command = _enum(args["command"], {"bring_to_front": 0, "send_to_back": 1, "bring_forward": 2, "send_backward": 3}, "command")
+        shape = _shape(slide, args)
+        shape.ZOrder(command)
+        return {"op": "slides_live_z_order", "command": args["command"], "shape": str(_safe_value(shape, "Name", ""))}
+
+    def _slides_live_crop_image(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        slide = _slide(presentation, int(args.get("slide_index", 1)))
+        shape = _shape(slide, args)
+        try:
+            picture = shape.PictureFormat
+        except Exception:
+            raise ValidationError("shape does not expose PictureFormat")
+        for name in ("CropLeft", "CropTop", "CropRight", "CropBottom"):
+            key = name[4:].lower()
+            if key in args:
+                setattr(picture, name, float(args[key]))
+        return {"op": "slides_live_crop_image", "shape": str(_safe_value(shape, "Name", ""))}
+
+    def _slides_live_rotate_shape(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        slide = _slide(presentation, int(args.get("slide_index", 1)))
+        shape = _shape(slide, args)
+        shape.Rotation = float(args["degrees"])
+        return {"op": "slides_live_rotate_shape", "degrees": float(args["degrees"]), "shape": str(_safe_value(shape, "Name", ""))}
+
+    def _slides_live_add_section(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        sections = presentation.SectionProperties
+        slide_index = int(args.get("slide_index", 1))
+        sections.AddBeforeSlide(slide_index, str(args["name"]))
+        return {"op": "slides_live_add_section", "name": str(args["name"]), "count": int(sections.Count)}
+
+    def _slides_live_delete_section(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        sections = presentation.SectionProperties
+        index = int(args.get("section_index", 1))
+        if index < 1 or index > int(sections.Count):
+            raise ValidationError("section_index is out of range")
+        sections.Delete(index, False)
+        return {"op": "slides_live_delete_section", "section_index": index, "count": int(sections.Count)}
+
+    def _slides_live_set_slide_visibility(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        index = int(args.get("slide_index", 1))
+        slide = _slide(presentation, index)
+        slide.SlideShowTransition.Hidden = not bool(args["visible"])
+        return {"op": "slides_live_set_slide_visibility", "slide_index": index, "visible": bool(args["visible"])}
+
+    def _slides_live_set_slide_numbers(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        visible = bool(args["visible"])
+        changed = 0
+        errors = []
+        if args.get("slide_index") is not None:
+            slides = [_slide(presentation, int(args["slide_index"]))]
+        else:
+            slides = list(_iter_collection(presentation.Slides))
+        for slide in slides:
+            try:
+                slide.HeadersFooters.SlideNumber.Visible = visible
+                changed += 1
+            except Exception as exc:
+                errors.append(str(exc))
+        try:
+            presentation.SlideMaster.HeadersFooters.SlideNumber.Visible = visible
+        except Exception as exc:
+            errors.append(str(exc))
+        if changed == 0:
+            raise ValidationError(
+                "PowerPoint did not expose a writable slide-number footer",
+                details={"visible": visible, "reason": errors[0] if errors else "unknown error"},
+            )
+        return {"op": "slides_live_set_slide_numbers", "visible": visible, "slides": changed}
+
+    def _slides_live_add_table(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        slide = _slide(presentation, int(args.get("slide_index", 1)))
+        rows, columns = int(args["rows"]), int(args["columns"])
+        shape = slide.Shapes.AddTable(rows, columns, float(args.get("left", 60)), float(args.get("top", 140)), float(args.get("width", 600)), float(args.get("height", 220)))
+        if args.get("name"):
+            shape.Name = str(args["name"])
+        data = args.get("data", [])
+        for row_index, row in enumerate(data, start=1):
+            if row_index > rows or not isinstance(row, list):
+                break
+            for column_index, value in enumerate(row, start=1):
+                if column_index <= columns:
+                    shape.Table.Cell(row_index, column_index).Shape.TextFrame.TextRange.Text = str(value)
+        return {"op": "slides_live_add_table", "slide_index": int(args.get("slide_index", 1)), "shape": str(_safe_value(shape, "Name", "")), "rows": rows, "columns": columns}
+
+    def _slides_live_set_table_cell(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        slide = _slide(presentation, int(args.get("slide_index", 1)))
+        shape = _shape(slide, args)
+        try:
+            table = shape.Table
+        except Exception:
+            raise ValidationError("shape is not a table")
+        table.Cell(int(args["row"]), int(args["column"])).Shape.TextFrame.TextRange.Text = str(args["text"])
+        return {"op": "slides_live_set_table_cell", "row": int(args["row"]), "column": int(args["column"]), "text": str(args["text"])}
+
+    def _slides_live_add_chart(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        slide = _slide(presentation, int(args.get("slide_index", 1)))
+        chart_type = _chart_type(args["chart_type"])
+        shape = slide.Shapes.AddChart2(201, chart_type, float(args.get("left", 60)), float(args.get("top", 140)), float(args.get("width", 600)), float(args.get("height", 320)))
+        if args.get("name"):
+            shape.Name = str(args["name"])
+        chart = shape.Chart
+        if args.get("title") is not None:
+            chart.HasTitle = True
+            chart.ChartTitle.Text = str(args["title"])
+        if args.get("data") is not None:
+            _write_chart_data(chart, args["data"])
+        return {"op": "slides_live_add_chart", "slide_index": int(args.get("slide_index", 1)), "shape": str(_safe_value(shape, "Name", "")), "chart_type": chart_type}
+
+    def _slides_live_add_smartart(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        slide = _slide(presentation, int(args.get("slide_index", 1)))
+        try:
+            layouts = app.SmartArtLayouts
+        except Exception as exc:
+            raise ValidationError("PowerPoint does not expose SmartArt layouts") from exc
+        layout = _find_collection_item(layouts, args.get("layout", 1))
+        shape = slide.Shapes.AddSmartArt(layout, float(args.get("left", 60)), float(args.get("top", 140)), float(args.get("width", 600)), float(args.get("height", 260)))
+        if args.get("name"):
+            shape.Name = str(args["name"])
+        if args.get("nodes") is not None:
+            try:
+                nodes = shape.SmartArt.AllNodes
+                count = int(nodes.Count)
+            except Exception as exc:
+                raise ValidationError("PowerPoint did not expose SmartArt nodes") from exc
+            values = list(args["nodes"])
+            if len(values) > count:
+                raise ValidationError(
+                    "nodes contains more entries than the selected SmartArt layout",
+                    details={"requested": len(values), "available": count},
+                )
+            for index, value in enumerate(values, start=1):
+                nodes(index).TextFrame2.TextRange.Text = str(value)
+        return {"op": "slides_live_add_smartart", "slide_index": int(args.get("slide_index", 1)), "shape": str(_safe_value(shape, "Name", ""))}
+
+    def _slides_live_add_media(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        media = Path(str(args["media_path"])).resolve()
+        if not media.is_file():
+            raise ValidationError("media_path does not exist", details={"media_path": str(media)})
+        slide = _slide(presentation, int(args.get("slide_index", 1)))
+        shape = slide.Shapes.AddMediaObject2(
+            FileName=str(media), LinkToFile=False, SaveWithDocument=True,
+            Left=float(args.get("left", 60)), Top=float(args.get("top", 140)),
+            Width=float(args.get("width", -1)), Height=float(args.get("height", -1)),
+        )
+        if args.get("name"):
+            shape.Name = str(args["name"])
+        return {"op": "slides_live_add_media", "slide_index": int(args.get("slide_index", 1)), "shape": str(_safe_value(shape, "Name", "")), "path": str(media)}
+
+    def _slides_live_set_hyperlink(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        slide = _slide(presentation, int(args.get("slide_index", 1)))
+        shape = _shape(slide, args)
+        hyperlink = shape.ActionSettings(1).Hyperlink
+        hyperlink.Address = str(args["url"])
+        if args.get("sub_address") is not None:
+            hyperlink.SubAddress = str(args["sub_address"])
+        return {"op": "slides_live_set_hyperlink", "shape": str(_safe_value(shape, "Name", "")), "url": str(args["url"])}
+
+    def _slides_live_set_alt_text(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        slide = _slide(presentation, int(args.get("slide_index", 1)))
+        shape = _shape(slide, args)
+        shape.AlternativeText = str(args["text"])
+        return {"op": "slides_live_set_alt_text", "shape": str(_safe_value(shape, "Name", "")), "text": str(args["text"])}
+
+    def _slides_live_set_transition(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        slide = _slide(presentation, int(args.get("slide_index", 1)))
+        transition = slide.SlideShowTransition
+        transition.EntryEffect = _transition_effect(args["effect"])
+        if args.get("advance_on_click") is not None:
+            transition.AdvanceOnClick = bool(args["advance_on_click"])
+        if args.get("advance_seconds") is not None:
+            transition.AdvanceOnTime = True
+            transition.AdvanceTime = float(args["advance_seconds"])
+        return {"op": "slides_live_set_transition", "slide_index": int(args.get("slide_index", 1)), "effect": args["effect"]}
+
+    def _slides_live_add_animation(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        slide = _slide(presentation, int(args.get("slide_index", 1)))
+        shape = _shape(slide, args)
+        effect = _animation_effect(args["effect"])
+        trigger = _enum(args.get("trigger", "on_click"), {"on_click": 1, "with_previous": 2, "after_previous": 3}, "trigger")
+        sequence = slide.TimeLine.MainSequence
+        sequence.AddEffect(shape, effect, 0, trigger)
+        return {"op": "slides_live_add_animation", "slide_index": int(args.get("slide_index", 1)), "effect": args["effect"], "trigger": args.get("trigger", "on_click")}
+
+    def _slides_live_export_pdf(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
+        output = _absolute_output(str(args.get("output_path", "")))
+        if output.exists():
+            raise ValidationError("PDF output already exists", details={"path": str(output)})
+        output.parent.mkdir(parents=True, exist_ok=True)
+        saved_copy = getattr(presentation, "SaveCopyAs", None)
+        if not callable(saved_copy):
+            raise ValidationError("PowerPoint does not expose SaveCopyAs for PDF export")
+        saved_copy(FileName=str(output), FileFormat=32)  # ppSaveAsPDF
+        if not output.is_file():
+            raise ValidationError("PowerPoint did not create the requested PDF", details={"path": str(output)})
+        return {"op": "slides_live_export_pdf", "path": str(output), "bytes": output.stat().st_size}
+
     def _slides_live_save(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
         presentation.Save()
         return {"op": "slides_live_save", "saved": bool(_safe_value(presentation, "Saved", True))}
@@ -473,6 +830,136 @@ def _shape(slide: Any, args: dict[str, Any], *, required: bool = True) -> Any | 
     if required:
         raise ValidationError("shape_name or shape_index must identify an existing shape")
     return None
+
+
+def _shape_range(slide: Any, args: dict[str, Any]) -> Any:
+    names = args.get("shape_names")
+    indices = args.get("shape_indices")
+    if names is None and indices is None:
+        shape = _shape(slide, args)
+        item = str(_safe_value(shape, "Name", "")) if args.get("shape_name") else int(args.get("shape_index", 1))
+        return slide.Shapes.Range((item,))
+    items = tuple(str(value) for value in names) if names is not None else tuple(int(value) for value in indices)
+    if len(items) < 1:
+        raise ValidationError("shape_names or shape_indices must contain at least one item")
+    try:
+        return slide.Shapes.Range(items)
+    except Exception:
+        try:
+            return slide.Shapes.Range(list(items))
+        except Exception as exc:
+            raise ValidationError("PowerPoint could not resolve the requested shape range", details={"items": list(items)}) from exc
+
+
+def _presentation_master(presentation: Any, args: dict[str, Any]) -> Any:
+    try:
+        designs = presentation.Designs
+    except Exception:
+        designs = []
+    selector = args.get("master")
+    if selector is not None:
+        return _find_collection_item(designs, selector).SlideMaster
+    try:
+        master = presentation.SlideMaster
+    except Exception:
+        master = None
+    if master is None and int(_safe_value(presentation.Slides, "Count", 0)):
+        master = _safe_value(presentation.Slides(1), "Master")
+    if master is None:
+        raise ValidationError("PowerPoint presentation has no slide master")
+    return master
+
+
+def _find_layout(master: Any, selector: Any) -> Any:
+    return _find_collection_item(master.CustomLayouts, selector)
+
+
+def _find_collection_item(collection: Any, selector: Any) -> Any:
+    if isinstance(selector, bool):
+        raise ValidationError("collection selector must be a name or positive integer")
+    if isinstance(selector, int) or (isinstance(selector, str) and selector.isdigit()):
+        index = int(selector)
+        if index < 1 or index > int(_safe_value(collection, "Count", 0)):
+            raise ValidationError("collection index is out of range", details={"index": index})
+        return collection(index)
+    wanted = str(selector).casefold()
+    for item in _iter_collection(collection):
+        if str(_safe_value(item, "Name", "")).casefold() == wanted:
+            return item
+    raise ValidationError("named PowerPoint collection item was not found", details={"name": str(selector)})
+
+
+def _chart_type(value: Any) -> int:
+    if isinstance(value, bool):
+        raise ValidationError("chart_type must be a name or integer")
+    if isinstance(value, int) or (isinstance(value, str) and value.isdigit()):
+        return int(value)
+    values = {"column": 51, "bar": 57, "line": 4, "pie": 5, "area": 1, "scatter": -4169}
+    key = str(value).casefold()
+    if key not in values:
+        raise ValidationError("unknown chart_type", details={"allowed": sorted(values)})
+    return values[key]
+
+
+def _write_chart_data(chart: Any, data: Any) -> None:
+    """Write a bounded rectangular matrix into an embedded PowerPoint chart."""
+    if not isinstance(data, list) or not data or not all(isinstance(row, list) and row for row in data):
+        raise ValidationError("chart data must be a non-empty array of non-empty rows")
+    width = len(data[0])
+    if any(len(row) != width for row in data):
+        raise ValidationError("chart data must be rectangular")
+    workbook = None
+    try:
+        chart.ChartData.Activate()
+        workbook = chart.ChartData.Workbook
+        sheet = workbook.Worksheets(1)
+        for row_index, row in enumerate(data, start=1):
+            for column_index, value in enumerate(row, start=1):
+                sheet.Cells(row_index, column_index).Value = value
+        address = sheet.Range(
+            sheet.Cells(1, 1),
+            sheet.Cells(len(data), width),
+        ).Address
+        # PowerPoint requires the embedded worksheet name in this address;
+        # the bare Excel range returned by Range.Address is rejected by some
+        # Office builds even though the cells themselves were written.
+        source = f"'{sheet.Name}'!{address}"
+        chart.SetSourceData(Source=source, PlotBy=2)
+    except Exception as exc:
+        raise ValidationError("PowerPoint could not write the chart data", details={"reason": str(exc)}) from exc
+    finally:
+        if workbook is not None:
+            try:
+                workbook.Close()
+            except Exception:
+                pass
+
+
+def _transition_effect(value: Any) -> int:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    values = {"none": 257, "cut": 257, "fade": 3845, "appear": 3844, "wipe_right": 2817, "wipe_left": 2819}
+    key = str(value).casefold()
+    if key not in values:
+        raise ValidationError("unknown transition effect", details={"allowed": sorted(values)})
+    return values[key]
+
+
+def _animation_effect(value: Any) -> int:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    values = {"appear": 1, "fly": 2, "fade": 10, "zoom": 23}
+    key = str(value).casefold()
+    if key not in values:
+        raise ValidationError("unknown animation effect", details={"allowed": sorted(values)})
+    return values[key]
+
+
+def _enum(value: Any, values: dict[str, int], name: str) -> int:
+    key = str(value).casefold()
+    if key not in values:
+        raise ValidationError(f"invalid {name}: {value}", details={"allowed": sorted(values)})
+    return values[key]
 
 
 def _add_textbox(slide: Any, text: str, args: dict[str, Any]) -> Any:

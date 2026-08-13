@@ -7,12 +7,13 @@ method names and there is no arbitrary dispatch escape hatch.
 
 | Area | Operations |
 | --- | --- |
-| Creation/editing | `word_live_create_document`, `word_live_insert_text`, `word_live_delete_text`, `word_live_replace_text`, `word_live_insert_paragraphs`, `word_live_format_text`, `word_live_add_table`, `word_live_format_table`, `word_live_apply_list`, `word_live_setup_heading_numbering`, `word_live_modify_table`, `word_live_save`, `word_live_toggle_track_changes`, `word_live_insert_image`, `word_live_insert_cross_reference`, `word_live_insert_equation` |
-| Reading | `word_live_list_open`, `word_live_get_text`, `word_live_take_snapshot`, `word_live_get_diff`, `word_live_snapshot_status`, `word_live_get_page_text`, `word_live_get_paragraph_format`, `word_live_get_info`, `word_live_find_text`, `word_live_get_undo_history`, `word_live_list_cross_reference_items`, `word_live_diagnose_layout` |
+| Creation/editing | `word_live_create_document`, `word_live_insert_text`, `word_live_delete_text`, `word_live_replace_text`, `word_live_insert_paragraphs`, `word_live_format_text`, `word_live_apply_style`, `word_live_add_table`, `word_live_format_table`, `word_live_apply_list`, `word_live_setup_heading_numbering`, `word_live_modify_table`, `word_live_save`, `word_live_toggle_track_changes`, `word_live_insert_image`, `word_live_insert_cross_reference`, `word_live_insert_equation`, `word_live_merge_document` |
+| Reading/inspection | `word_live_list_open`, `word_live_get_text`, `word_live_take_snapshot`, `word_live_get_diff`, `word_live_snapshot_status`, `word_live_get_page_text`, `word_live_get_paragraph_format`, `word_live_get_info`, `word_live_find_text`, `word_live_get_undo_history`, `word_live_list_cross_reference_items`, `word_live_diagnose_layout`, `word_live_list_styles`, `word_live_list_hyperlinks`, `word_live_list_notes`, `word_live_list_content_controls`, `word_live_get_protection` |
+| Links, notes, fields, forms | `word_live_add_hyperlink`, `word_live_remove_hyperlink`, `word_live_add_note`, `word_live_update_fields`, `word_live_insert_toc`, `word_live_set_content_control` |
 | Comments/revisions | `word_live_get_comments`, `word_live_add_comment`, `word_live_list_revisions`, `word_live_reply_to_comment`, `word_live_resolve_comment`, `word_live_delete_comment`, `word_live_accept_revisions`, `word_live_reject_revisions` |
-| Layout | `word_live_set_page_layout`, `word_live_add_header_footer`, `word_live_add_page_numbers`, `word_live_add_section_break`, `word_live_set_paragraph_spacing`, `word_live_add_bookmark`, `word_live_add_watermark`, `word_live_remove_watermark` |
-| Undo/capture | `word_live_undo`, `word_screen_capture` |
-| Metadata | `word_live_set_core_properties` |
+| Layout/header/footer | `word_live_set_page_layout`, `word_live_add_header_footer`, `word_live_remove_header_footer`, `word_live_add_page_numbers`, `word_live_add_section_break`, `word_live_set_paragraph_spacing`, `word_live_add_bookmark`, `word_live_add_watermark`, `word_live_remove_watermark` |
+| Output/protection | `word_live_export_pdf`, `word_live_set_protection`, `word_live_compare_documents` |
+| Undo/capture/metadata | `word_live_undo`, `word_screen_capture`, `word_live_set_core_properties` |
 
 `word inspect --backend com --render-dir <directory>` is a separate read-only
 inspection option, not a plan operation. It opens a closed target read-only when
@@ -47,6 +48,31 @@ Example plan operation:
 }
 ```
 
+The additional operations remain semantic and bounded. They accept document
+ranges, paragraph indexes, bookmarks, or named shapes only where documented;
+they do not accept a COM object path or method name.
+
+```json
+{
+  "op": "word_live_set_content_control",
+  "args": {
+    "title": "ClientName",
+    "value": "Example Client",
+    "tag": "client-name",
+    "paragraph_index": 1
+  }
+}
+```
+
+`word_live_export_pdf` and `word_live_compare_documents` own their output
+path through `write.mode: "save-as"`; they do not overwrite an existing PDF or
+comparison document. `word_live_merge_document` inserts a source document at
+the target's end and follows the normal snapshot/save-as rules. Protection
+types are `none`, `tracked_changes`, `comments`, `forms`, and `read_only`.
+`word_live_remove_header_footer` clears authored text and shapes for the
+selected header/footer stories. `word_live_update_fields` updates Word story
+fields and existing tables of contents.
+
 Remove an exact-text WordArt watermark from header/footer stories. The default
 text is `DRAFT`, the default position is both header and footer, and omitting
 `section_index` covers all sections. In-place removal still requires an
@@ -79,8 +105,10 @@ use fake COM objects at this boundary so they can run without Word, while the
 installed, `python -m pytest -q --run-real-word` creates disposable real
 documents and executes the existing-file operation matrix plus the standalone
 creation operation through the plan and adapter boundary; it does not use fake
-COM objects. The harness checks each postcondition, reopens every snapshot in
-Word, and captures the Word window after every mutating operation. Set
+COM objects. The harness checks each postcondition and reopens every snapshot
+in Word. It also renders representative live mutations through the Word
+window; output-producing operations are validated directly as PDF or DOCX
+artifacts. Set
 `WHITE_COLLAR_REAL_WORD_ARTIFACT_DIR` to retain those PNG screenshots and
 snapshot `.docx` files for review, for example:
 

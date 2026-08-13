@@ -21,6 +21,12 @@ def _plan(target: Path, operation: str, args: dict, root: Path, sequence: int) -
     if read:
         policy = "read-only"
         write = {"mode": "none"}
+    elif operation == "word_live_export_pdf":
+        policy = "edit"
+        write = {"mode": "save-as", "path": str(root / f"export-{sequence:03d}.pdf")}
+    elif operation == "word_live_compare_documents":
+        policy = "edit"
+        write = {"mode": "save-as", "path": str(root / f"compare-{sequence:03d}.docx")}
     elif operation == "word_screen_capture":
         policy = "review"
         write = {"mode": "save-as", "path": str(root / f"screen-source-{sequence:03d}.docx")}
@@ -89,6 +95,11 @@ def _assert_screenshot(path: Path) -> None:
         assert max(stats.stddev) > 0, path
 
 
+def _assert_pdf(path: Path) -> None:
+    assert path.is_file(), path
+    assert path.read_bytes()[:5] == b"%PDF-"
+
+
 def _artifact_root(tmp_path: Path) -> Path:
     configured = os.environ.get("WHITE_COLLAR_REAL_WORD_ARTIFACT_DIR")
     if not configured:
@@ -128,6 +139,17 @@ def _assert_operation_behavior(app, target: Path, operation: str, args: dict, va
     elif operation == "word_live_get_comments":
         if document.Comments.Count:
             assert result["comments"]
+    elif operation == "word_live_list_styles":
+        assert result["count"] >= 1
+        assert any(item["name"] in {"Normal", "Normal (Web)"} for item in result["styles"])
+    elif operation == "word_live_list_hyperlinks":
+        assert "hyperlinks" in result
+    elif operation == "word_live_list_notes":
+        assert "notes" in result
+    elif operation == "word_live_list_content_controls":
+        assert "content_controls" in result
+    elif operation == "word_live_get_protection":
+        assert result["protected"] is False
     elif operation == "word_live_insert_text":
         assert "inserted" in text
     elif operation == "word_live_get_diff":
@@ -139,6 +161,25 @@ def _assert_operation_behavior(app, target: Path, operation: str, args: dict, va
         assert bool(font.Bold) is True
         assert str(font.Name) == "Arial"
         assert abs(float(font.Size) - 12) < 0.1
+    elif operation == "word_live_apply_style":
+        assert str(document.Paragraphs(int(args.get("paragraph_index", 1))).Style.NameLocal) == str(args["style_name"])
+    elif operation == "word_live_add_hyperlink":
+        assert document.Hyperlinks.Count >= 1
+    elif operation == "word_live_remove_hyperlink":
+        assert document.Hyperlinks.Count == 0
+    elif operation == "word_live_add_note":
+        collection = document.Endnotes if args.get("note_type") == "endnote" else document.Footnotes
+        assert collection.Count >= 1
+    elif operation == "word_live_update_fields":
+        assert result["fields"] >= 0
+    elif operation == "word_live_insert_toc":
+        assert document.TablesOfContents.Count >= 1
+    elif operation == "word_live_set_content_control":
+        assert document.ContentControls.Count >= 1
+        assert any(
+            str(document.ContentControls(index).Range.Text).rstrip("\r\a") == str(args["value"])
+            for index in range(1, int(document.ContentControls.Count) + 1)
+        )
     elif operation == "word_live_add_table":
         assert document.Tables.Count >= 1
         assert str(document.Tables(1).Cell(1, 1).Range.Text).startswith("A")
@@ -170,6 +211,9 @@ def _assert_operation_behavior(app, target: Path, operation: str, args: dict, va
     elif operation == "word_live_add_header_footer":
         assert "Header" in str(document.Sections(1).Headers(1).Range.Text)
         assert "Footer" in str(document.Sections(1).Footers(1).Range.Text)
+    elif operation == "word_live_remove_header_footer":
+        assert "Header" not in str(document.Sections(1).Headers(1).Range.Text)
+        assert "Footer" not in str(document.Sections(1).Footers(1).Range.Text)
     elif operation == "word_live_add_watermark":
         assert document.Sections(1).Headers(1).Shapes.Count >= 1
     elif operation == "word_live_remove_watermark":
@@ -225,6 +269,15 @@ def _assert_operation_behavior(app, target: Path, operation: str, args: dict, va
         # With TrackRevisions enabled Word keeps the deleted characters in the
         # content stream; the revision itself is the observable mutation.
         assert len(text) < len(before_text) or document.Revisions.Count > 0
+    elif operation == "word_live_export_pdf":
+        _assert_pdf(Path(result["path"]))
+    elif operation == "word_live_set_protection":
+        expected = -1 if args["protection_type"] == "none" else {"tracked_changes": 0, "comments": 1, "forms": 2, "read_only": 3}[args["protection_type"]]
+        assert int(document.ProtectionType) == expected
+    elif operation == "word_live_compare_documents":
+        _assert_valid_word_copy(app, Path(result["path"]))
+    elif operation == "word_live_merge_document":
+        assert "Merged source marker" in text
 
 
 @pytest.fixture(scope="module")
@@ -265,6 +318,16 @@ def test_every_registered_word_operation_against_real_word(real_word, tmp_path):
     screenshot_root.mkdir(parents=True, exist_ok=True)
     image_path = artifact_root / "pixel.png"
     _write_png(image_path)
+    compare_source = artifact_root / "compare-source.docx"
+    source_document = real_word.Documents.Add()
+    source_document.Range(0, 0).InsertAfter("Compared source text\r")
+    source_document.SaveAs2(FileName=str(compare_source), FileFormat=12)
+    source_document.Close(SaveChanges=False)
+    merge_source = artifact_root / "merge-source.docx"
+    merge_document = real_word.Documents.Add()
+    merge_document.Range(0, 0).InsertAfter("Merged source marker\r")
+    merge_document.SaveAs2(FileName=str(merge_source), FileFormat=12)
+    merge_document.Close(SaveChanges=False)
 
     # State needed by several operations is created by the adapter itself or by
     # the immediately preceding operation. Every operation is still invoked via
@@ -277,6 +340,11 @@ def test_every_registered_word_operation_against_real_word(real_word, tmp_path):
         ("word_live_get_page_text", {"page": 1}),
         ("word_live_get_paragraph_format", {"start_paragraph": 1, "end_paragraph": 2}),
         ("word_live_get_info", {}),
+        ("word_live_list_styles", {}),
+        ("word_live_list_hyperlinks", {}),
+        ("word_live_list_notes", {}),
+        ("word_live_list_content_controls", {}),
+        ("word_live_get_protection", {}),
         ("word_live_find_text", {"search_text": "Draft", "max_results": 10}),
         ("word_live_list_cross_reference_items", {}),
         ("word_live_diagnose_layout", {}),
@@ -285,6 +353,16 @@ def test_every_registered_word_operation_against_real_word(real_word, tmp_path):
         ("word_live_get_diff", {}),
         ("word_live_insert_paragraphs", {"paragraphs": ["Inserted A", "Inserted B"], "position": "end"}),
         ("word_live_format_text", {"start_paragraph": 1, "end_paragraph": 1, "bold": True, "font_name": "Arial", "font_size": 12}),
+        ("word_live_apply_style", {"paragraph_index": 1, "style_name": "Title"}),
+        ("word_live_add_hyperlink", {"paragraph_index": 1, "url": "https://example.com", "display_text": "Example"}),
+        ("word_live_list_hyperlinks", {}),
+        ("word_live_remove_hyperlink", {"hyperlink_index": 1}),
+        ("word_live_add_note", {"paragraph_index": 1, "text": "Footnote text", "note_type": "footnote"}),
+        ("word_live_list_notes", {}),
+        ("word_live_insert_toc", {"position": "start", "lower_heading_level": 2}),
+        ("word_live_update_fields", {}),
+        ("word_live_set_content_control", {"paragraph_index": 1, "title": "ClientName", "value": "Example Client", "tag": "client-name"}),
+        ("word_live_list_content_controls", {}),
         ("word_live_add_table", {"rows": 2, "cols": 2, "data": [["A", "B"], ["C", "D"]]}),
         ("word_live_format_table", {"table_index": -1, "autofit": "window", "table_alignment": "center"}),
         ("word_live_apply_list", {"start_paragraph": 1, "end_paragraph": 2, "list_type": "bullet"}),
@@ -302,6 +380,7 @@ def test_every_registered_word_operation_against_real_word(real_word, tmp_path):
         ("word_live_remove_watermark", {"text": "DRAFT"}),
         ("word_live_add_page_numbers", {"position": "footer", "alignment": "center", "prefix": "Page "}),
         ("word_live_add_page_numbers", {"position": "header", "alignment": "right", "prefix": "Page ", "include_total": True, "suffix": " total"}),
+        ("word_live_remove_header_footer", {"position": "both", "section_index": 1}),
         ("word_live_add_section_break", {"break_type": "new_page"}),
         ("word_live_set_paragraph_spacing", {"paragraph_index": 1, "space_after_pt": 6, "line_spacing_rule": "single"}),
         ("word_live_add_comment", {"start": 0, "end": 5, "text": "Review this"}),
@@ -318,6 +397,12 @@ def test_every_registered_word_operation_against_real_word(real_word, tmp_path):
         ("word_live_save", {}),
         ("word_live_undo", {"times": 1}),
         ("word_live_set_core_properties", {"title": "Real Word Test", "author": "white-collar"}),
+        ("word_live_merge_document", {"source_path": str(merge_source)}),
+        ("word_live_compare_documents", {"source_path": str(compare_source)}),
+        ("word_live_export_pdf", {}),
+        ("word_live_set_protection", {"protection_type": "read_only"}),
+        ("word_live_get_protection", {}),
+        ("word_live_set_protection", {"protection_type": "none"}),
         ("word_screen_capture", {"output_path": str(screenshot_root / "final-word-window.png")}),
         ("word_live_delete_text", {"start": 0, "end": 1}),
     ]
@@ -342,7 +427,23 @@ def test_every_registered_word_operation_against_real_word(real_word, tmp_path):
         if operation == "word_screen_capture":
             _assert_screenshot(Path(args["output_path"]))
             _assert_valid_word_copy(real_word, artifact_root / f"screen-source-{sequence:03d}.docx")
-        elif operation in WORD_COM_MUTATING_OPERATIONS:
+        elif operation in {"word_live_compare_documents", "word_live_export_pdf"}:
+            if operation == "word_live_compare_documents":
+                _assert_valid_word_copy(real_word, Path(value["operations"][0]["path"]))
+            else:
+                _assert_pdf(Path(value["operations"][0]["path"]))
+        elif operation in WORD_COM_MUTATING_OPERATIONS and operation not in {
+            "word_live_apply_style",
+            "word_live_add_hyperlink",
+            "word_live_remove_hyperlink",
+            "word_live_add_note",
+            "word_live_update_fields",
+            "word_live_insert_toc",
+            "word_live_set_content_control",
+            "word_live_remove_header_footer",
+            "word_live_set_protection",
+            "word_live_merge_document",
+        }:
             snapshot = artifact_root / f"snapshot-{sequence:02d}-{operation}.docx"
             _assert_valid_word_copy(real_word, snapshot)
             screenshot = screenshot_root / f"after-{sequence:02d}-{operation}.png"
@@ -370,7 +471,16 @@ def test_every_registered_word_operation_against_real_word(real_word, tmp_path):
     # on the shared open document used by the operation matrix below.
     assert WORD_COM_OPERATIONS - executed == {"word_live_create_document"}
     expected_screenshots = 1 + sum(
-        operation in WORD_COM_MUTATING_OPERATIONS for operation, _ in cases if operation != "word_screen_capture"
+        operation in WORD_COM_MUTATING_OPERATIONS
+        and operation not in {
+            "word_live_compare_documents", "word_live_export_pdf",
+            "word_live_apply_style", "word_live_add_hyperlink", "word_live_remove_hyperlink",
+            "word_live_add_note", "word_live_update_fields", "word_live_insert_toc",
+            "word_live_set_content_control", "word_live_remove_header_footer",
+            "word_live_set_protection", "word_live_merge_document",
+        }
+        for operation, _ in cases
+        if operation != "word_screen_capture"
     )
     assert len(list(screenshot_root.glob("*.png"))) == expected_screenshots
     document = None

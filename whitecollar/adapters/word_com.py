@@ -18,6 +18,8 @@ from ..models import Plan
 from ..office_capture import capture_window
 from ..word_ops import WORD_COM_MUTATING_OPERATIONS, WORD_COM_OPERATIONS
 
+WORD_COM_SELF_WRITING_OPERATIONS = {"word_live_export_pdf", "word_live_compare_documents"}
+
 
 class Win32WordComAdapter:
     """Finite semantic adapter for the Word live operation vocabulary.
@@ -74,6 +76,8 @@ class Win32WordComAdapter:
         for operation in plan.operations:
             name = operation["op"]
             args = _operation_args(operation)
+            if name in WORD_COM_SELF_WRITING_OPERATIONS and plan.write.path:
+                args.setdefault("output_path", plan.write.path)
             if name not in WORD_COM_OPERATIONS and name != "replace_text":
                 raise ValidationError(f"unsupported Word COM operation: {name}")
             if dry_run and name in WORD_COM_MUTATING_OPERATIONS:
@@ -91,7 +95,9 @@ class Win32WordComAdapter:
             with self._undo(app, name) if name in WORD_COM_MUTATING_OPERATIONS else contextlib.nullcontext():
                 operations.append(method(app, doc, args))
             self._history.append({"operation": name, "document": doc.Name, "at": dt.datetime.now(dt.timezone.utc).isoformat()})
-        if not dry_run and doc is not None and plan.write.mode != "none":
+        if not dry_run and doc is not None and plan.write.mode != "none" and not any(
+            operation["op"] in WORD_COM_SELF_WRITING_OPERATIONS for operation in plan.operations
+        ):
             self._commit_write(app, doc, plan)
         return {"backend": "word-com", "written": not dry_run, "operations": operations}
 
@@ -240,6 +246,60 @@ class Win32WordComAdapter:
             paragraphs.append({"index": index, "text": text, "style": _style_name(paragraph)})
         return {"op": "word_live_get_text", "paragraphs": paragraphs, "total_paragraphs": len(paragraphs)}
 
+    def _word_live_list_styles(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
+        styles = []
+        for style in _iter_collection(doc.Styles):
+            styles.append({
+                "name": str(_safe_value(style, "NameLocal", _safe_value(style, "Name", ""))),
+                "type": _safe_value(style, "Type"),
+                "built_in": bool(_safe_value(style, "BuiltIn", False)),
+            })
+        return {"op": "word_live_list_styles", "styles": styles, "count": len(styles)}
+
+    def _word_live_list_hyperlinks(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
+        links = []
+        for index, link in enumerate(_iter_collection(doc.Hyperlinks), start=1):
+            anchor = _safe_value(link, "Range")
+            links.append({
+                "index": index,
+                "text": str(_safe_value(anchor, "Text", "")),
+                "address": str(_safe_value(link, "Address", "") or ""),
+                "sub_address": str(_safe_value(link, "SubAddress", "") or ""),
+            })
+        return {"op": "word_live_list_hyperlinks", "hyperlinks": links, "count": len(links)}
+
+    def _word_live_list_notes(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
+        notes = []
+        for note_type, collection_name in (("footnote", "Footnotes"), ("endnote", "Endnotes")):
+            for index, note in enumerate(_iter_collection(getattr(doc, collection_name)), start=1):
+                notes.append({
+                    "type": note_type,
+                    "index": index,
+                    "text": str(_safe_value(_safe_value(note, "Range"), "Text", "")).rstrip("\r\a"),
+                    "reference": str(_safe_value(_safe_value(note, "Reference"), "Text", "")),
+                })
+        return {"op": "word_live_list_notes", "notes": notes, "count": len(notes)}
+
+    def _word_live_list_content_controls(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
+        controls = []
+        collection = doc.ContentControls
+        for index in range(1, _count(collection) + 1):
+            control = collection(index)
+            controls.append({
+                "index": index,
+                "id": _safe_value(control, "ID"),
+                "title": str(_safe_value(control, "Title", "")),
+                "tag": str(_safe_value(control, "Tag", "")),
+                "type": _safe_value(control, "Type"),
+                "text": str(_safe_value(_safe_value(control, "Range"), "Text", "")).rstrip("\r\a"),
+                "locked": bool(_safe_value(control, "LockContents", False)),
+            })
+        return {"op": "word_live_list_content_controls", "content_controls": controls, "count": len(controls)}
+
+    def _word_live_get_protection(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
+        protection_type = _safe_value(doc, "ProtectionType", -1)
+        return {"op": "word_live_get_protection", "protection_type": protection_type, "protected": protection_type != -1}
+
     def _get_text(self, doc: Any) -> dict[str, Any]:
         return self._word_live_get_text(None, doc, {})
 
@@ -369,6 +429,238 @@ class Win32WordComAdapter:
             for paragraph in _iter_collection(rng.Paragraphs):
                 paragraph.Format.PageBreakBefore = bool(args["page_break_before"])
         return {"op": "word_live_format_text", "range": _range_info(rng)}
+
+    def _word_live_apply_style(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
+        style_name = _required_string(args, "style_name")
+        # Resolve the style before changing the range so a typo fails without
+        # partially formatting the document.
+        style = doc.Styles(style_name)
+        rng = _resolve_range(doc, args)
+        rng.Style = style
+        return {"op": "word_live_apply_style", "style_name": style_name, "range": _range_info(rng)}
+
+    def _word_live_add_hyperlink(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
+        url = _required_string(args, "url")
+        rng = _resolve_range(doc, args)
+        values = {"Anchor": rng, "Address": url}
+        if args.get("sub_address"):
+            values["SubAddress"] = args["sub_address"]
+        if args.get("display_text") is not None:
+            values["TextToDisplay"] = str(args["display_text"])
+        link = doc.Hyperlinks.Add(**values)
+        return {
+            "op": "word_live_add_hyperlink",
+            "address": str(_safe_value(link, "Address", url) or ""),
+            "sub_address": str(_safe_value(link, "SubAddress", "") or ""),
+            "text": str(_safe_value(_safe_value(link, "Range"), "Text", "")),
+        }
+
+    def _word_live_remove_hyperlink(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
+        removed = 0
+        if args.get("hyperlink_index") is not None:
+            index = int(args["hyperlink_index"])
+            if index < 1 or index > _count(doc.Hyperlinks):
+                raise ValidationError("hyperlink_index is out of range")
+            doc.Hyperlinks(index).Delete()
+            removed = 1
+        else:
+            rng = _resolve_range(doc, args)
+            links = _safe_value(rng, "Hyperlinks", [])
+            for link in list(_iter_collection(links)):
+                link.Delete()
+                removed += 1
+        return {"op": "word_live_remove_hyperlink", "removed": removed}
+
+    def _word_live_add_note(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
+        note_type = str(args.get("note_type", "footnote")).lower()
+        if note_type not in {"footnote", "endnote"}:
+            raise ValidationError("note_type must be 'footnote' or 'endnote'")
+        rng = _resolve_range(doc, args)
+        collection = doc.Footnotes if note_type == "footnote" else doc.Endnotes
+        note = collection.Add(Range=rng, Text=_word_text(str(args["text"])))
+        return {"op": "word_live_add_note", "note_type": note_type, "index": _count(collection), "text": str(args["text"])}
+
+    def _word_live_update_fields(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
+        updated = 0
+        for story in _story_ranges(doc):
+            fields = _safe_value(story, "Fields")
+            try:
+                updated += _count(fields)
+                fields.Update()
+            except Exception:
+                pass
+        for table in _iter_collection(getattr(doc, "TablesOfContents", [])):
+            try:
+                table.Update()
+            except Exception:
+                pass
+        return {"op": "word_live_update_fields", "fields": updated}
+
+    def _word_live_insert_toc(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
+        rng = _insert_range(doc, args.get("position", "start"), args.get("bookmark"))
+        kwargs = {
+            "Range": rng,
+            "UseHeadingStyles": bool(args.get("use_heading_styles", True)),
+            "UpperHeadingLevel": int(args.get("upper_heading_level", 1)),
+            "LowerHeadingLevel": int(args.get("lower_heading_level", 3)),
+            "RightAlignPageNumbers": bool(args.get("right_align_page_numbers", True)),
+            "IncludePageNumbers": bool(args.get("include_page_numbers", True)),
+        }
+        toc = doc.TablesOfContents.Add(**kwargs)
+        return {"op": "word_live_insert_toc", "count": _count(doc.TablesOfContents), "range": _range_info(_safe_value(toc, "Range", rng))}
+
+    def _word_live_set_content_control(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
+        title = _required_string(args, "title")
+        value = str(args["value"])
+        control = None
+        created = False
+        for item in _iter_collection(doc.ContentControls):
+            if str(_safe_value(item, "Title", "")) == title or str(_safe_value(item, "Tag", "")) == title:
+                control = item
+                break
+        if control is None:
+            if not args.get("create_if_missing", True):
+                raise ValidationError("content control was not found", details={"title": title})
+            rng = _resolve_range(doc, args)
+            control = doc.ContentControls.Add(1, rng)
+            created = True
+            control.Title = title
+            if args.get("tag") is not None:
+                control.Tag = str(args["tag"])
+        control.Range.Text = value
+        return {"op": "word_live_set_content_control", "title": title, "value": value, "created": created}
+
+    def _word_live_remove_header_footer(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
+        position = str(args.get("position", "both")).lower()
+        if position not in {"header", "footer", "both"}:
+            raise ValidationError("position must be 'header', 'footer', or 'both'")
+        section_index = args.get("section_index")
+        sections = [_section(doc, args)] if section_index is not None else list(_iter_collection(doc.Sections))
+        removed_shapes = 0
+        cleared = []
+        for section in sections:
+            for area_name, collection in (("header", section.Headers), ("footer", section.Footers)):
+                if position not in {area_name, "both"}:
+                    continue
+                for kind in (1, 2, 3):
+                    area = collection(kind)
+                    for shape in list(_iter_collection(_safe_value(area, "Shapes", []))):
+                        shape.Delete()
+                        removed_shapes += 1
+                    rng = _safe_value(area, "Range")
+                    if rng is not None:
+                        try:
+                            rng.Text = ""
+                        except Exception:
+                            try:
+                                rng.Delete()
+                            except Exception:
+                                pass
+                    cleared.append(area_name)
+        return {
+            "op": "word_live_remove_header_footer",
+            "position": position,
+            "sections": len(sections),
+            "cleared": sorted(set(cleared)),
+            "removed_shapes": removed_shapes,
+        }
+
+    def _word_live_export_pdf(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
+        output = _absolute_output(_required_string(args, "output_path"))
+        if output.exists():
+            raise ValidationError("PDF output already exists", details={"path": str(output)})
+        output.parent.mkdir(parents=True, exist_ok=True)
+        doc.ExportAsFixedFormat(
+            OutputFileName=str(output),
+            ExportFormat=17,
+            OpenAfterExport=False,
+            OptimizeFor=0,
+            Range=0,
+            From=0,
+            To=0,
+            Item=0,
+            IncludeDocProps=True,
+            KeepIRM=True,
+            CreateBookmarks=0,
+            DocStructureTags=True,
+            BitmapMissingFonts=True,
+            UseISO19005_1=False,
+        )
+        if not output.is_file():
+            raise ValidationError("Word did not create the requested PDF", details={"path": str(output)})
+        return {"op": "word_live_export_pdf", "path": str(output), "bytes": output.stat().st_size}
+
+    def _word_live_set_protection(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
+        protection_type = str(args.get("protection_type", "none")).lower()
+        values = {"none": -1, "tracked_changes": 0, "comments": 1, "forms": 2, "read_only": 3}
+        if protection_type not in values:
+            raise ValidationError("protection_type must be none, tracked_changes, comments, forms, or read_only")
+        password = args.get("password")
+        if protection_type == "none":
+            if _safe_value(doc, "ProtectionType", -1) != -1:
+                doc.Unprotect(Password=str(password or ""))
+        else:
+            if _safe_value(doc, "ProtectionType", -1) != -1:
+                doc.Unprotect(Password=str(password or ""))
+            kwargs = {"Type": values[protection_type], "NoReset": True}
+            if password is not None:
+                kwargs["Password"] = str(password)
+            doc.Protect(**kwargs)
+        return {
+            "op": "word_live_set_protection",
+            "protection_type": protection_type,
+            "protected": protection_type != "none",
+        }
+
+    def _word_live_compare_documents(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
+        source_path = Path(_required_string(args, "source_path"))
+        output = _absolute_output(_required_string(args, "output_path"))
+        if not source_path.is_file():
+            raise ValidationError("compare source file does not exist", details={"source_path": str(source_path)})
+        if output.exists():
+            raise ValidationError("compare output already exists", details={"path": str(output)})
+        source = None
+        result = None
+        try:
+            source = app.Documents.Open(FileName=str(source_path), ReadOnly=True, AddToRecentFiles=False, Visible=False)
+            result = app.CompareDocuments(OriginalDocument=doc, RevisedDocument=source, Destination=2)
+            if result is None:
+                result = _find_document(app, str(source_path))
+            output.parent.mkdir(parents=True, exist_ok=True)
+            save_as2 = getattr(result, "SaveAs2", None)
+            if callable(save_as2):
+                save_as2(FileName=str(output), FileFormat=_file_format(output))
+            else:
+                result.SaveAs(FileName=str(output), FileFormat=_file_format(output))
+            if not output.is_file():
+                raise ValidationError("Word did not create the comparison output", details={"path": str(output)})
+            return {"op": "word_live_compare_documents", "source_path": str(source_path), "path": str(output)}
+        except ValidationError:
+            raise
+        except Exception as exc:
+            raise ValidationError(
+                "Word could not compare the documents",
+                details={"source_path": str(source_path), "reason": str(exc)},
+            ) from exc
+        finally:
+            if result is not None and result is not doc and result is not source:
+                try:
+                    result.Close(SaveChanges=False)
+                except Exception:
+                    pass
+            if source is not None:
+                try:
+                    source.Close(SaveChanges=False)
+                except Exception:
+                    pass
+
+    def _word_live_merge_document(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
+        source_path = Path(_required_string(args, "source_path"))
+        if not source_path.is_file():
+            raise ValidationError("merge source file does not exist", details={"source_path": str(source_path)})
+        insertion = doc.Range(doc.Content.End - 1, doc.Content.End - 1)
+        insertion.InsertFile(FileName=str(source_path), ConfirmConversions=False, Link=False, Attachment=False)
+        return {"op": "word_live_merge_document", "source_path": str(source_path), "merged": True}
 
     def _word_live_apply_list(self, app: Any, doc: Any, args: dict[str, Any]) -> dict[str, Any]:
         paragraphs = _paragraph_range(doc, args)
@@ -1210,6 +1502,17 @@ def _iter_collection(collection: Any):
     except TypeError:
         count = _count(collection)
         return (collection(index) for index in range(1, count + 1))
+
+
+def _story_ranges(doc: Any):
+    """Yield each Word story, including linked continuation ranges."""
+
+    stories = _safe_value(doc, "StoryRanges", [])
+    for story in _iter_collection(stories):
+        current = story
+        while current is not None:
+            yield current
+            current = _safe_value(current, "NextStoryRange")
 
 
 def _count(collection: Any) -> int:

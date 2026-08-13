@@ -366,9 +366,11 @@ python -m pytest -q tests/test_slides_com_real.py --run-real-powerpoint
 That opt-in test creates a disposable real deck and invokes every registered
 PowerPoint operation through `Plan` and `PowerPointComAdapter`: inspection,
 text operations, slide lifecycle, formatting, shapes, images, backgrounds,
-duplication, ordering, notes, size, save, and screen capture. It checks each
-operation's postcondition, reopens every snapshot in PowerPoint, and retains
-native PowerPoint-window screenshots plus PowerPoint-exported slide renders.
+duplication, ordering, templates/layouts, notes, sections, visibility, slide
+numbers, tables, charts, SmartArt, media, links, accessibility text, motion,
+PDF export, save, and screen capture. It checks each operation's postcondition,
+reopens every snapshot in PowerPoint, and retains native PowerPoint-window
+screenshots plus PowerPoint-exported slide renders.
 The normal review gate does not require Office because it uses fake COM objects
 at the adapter boundary. The test uses PowerPoint's native
 slide export for render inspection when the optional presentation helper's PDF

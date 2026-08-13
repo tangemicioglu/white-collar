@@ -91,6 +91,39 @@ def test_powerpoint_com_mutation_requires_explicit_write_policy():
         authorize_plan(Plan.from_dict(raw), dry_run=False)
 
 
+@pytest.mark.parametrize(
+    "operation,args,match",
+    [
+        ("word_live_apply_style", {"style_name": "Title", "unexpected": True}, "unknown field"),
+        ("word_live_remove_hyperlink", {}, "identify a hyperlink"),
+        ("word_live_set_protection", {"protection_type": "admin"}, "invalid"),
+        ("word_live_compare_documents", {"source_path": "relative.docx"}, "absolute path"),
+    ],
+)
+def test_new_word_operations_have_bounded_argument_validation(operation, args, match):
+    raw = json.loads(Path("tests/fixtures/word-replace-plan.json").read_text(encoding="utf-8"))
+    raw["operations"] = [{"op": operation, "args": args}]
+    with pytest.raises(ValidationError, match=match):
+        Plan.from_dict(raw)
+
+
+@pytest.mark.parametrize(
+    "operation,args,match",
+    [
+        ("slides_live_group", {"shape_names": []}, "non-empty"),
+        ("slides_live_ungroup", {}, "identify a shape"),
+        ("slides_live_crop_image", {"shape_name": "Picture"}, "crop value"),
+        ("slides_live_add_media", {"media_path": "relative.wav"}, "absolute path"),
+    ],
+)
+def test_new_slides_operations_have_bounded_argument_validation(operation, args, match):
+    raw = json.loads(Path("tests/fixtures/word-replace-plan.json").read_text(encoding="utf-8"))
+    raw["app"] = "slides"
+    raw["operations"] = [{"op": operation, "args": args}]
+    with pytest.raises(ValidationError, match=match):
+        Plan.from_dict(raw)
+
+
 def test_mail_write_plan_splits_review_state_from_edit_operations_and_has_no_file_write_intent():
     raw = {
         "schema": "white-collar.plan/v1",
