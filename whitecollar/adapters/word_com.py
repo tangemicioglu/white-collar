@@ -522,6 +522,11 @@ class Win32WordComAdapter:
             if not args.get("create_if_missing", True):
                 raise ValidationError("content control was not found", details={"title": title})
             rng = _resolve_range(doc, args)
+            if _range_overlaps_field(rng):
+                raise ValidationError(
+                    "content control target overlaps a Word field; use a range outside the field result",
+                    details={"title": title},
+                )
             control = doc.ContentControls.Add(1, rng)
             created = True
             control.Title = title
@@ -623,7 +628,12 @@ class Win32WordComAdapter:
         result = None
         try:
             source = app.Documents.Open(FileName=str(source_path), ReadOnly=True, AddToRecentFiles=False, Visible=False)
-            result = app.CompareDocuments(OriginalDocument=doc, RevisedDocument=source, Destination=2)
+            result = app.CompareDocuments(
+                OriginalDocument=doc,
+                RevisedDocument=source,
+                Destination=2,
+                IgnoreAllComparisonWarnings=True,
+            )
             if result is None:
                 result = _find_document(app, str(source_path))
             output.parent.mkdir(parents=True, exist_ok=True)
@@ -1102,7 +1112,11 @@ class Win32WordComAdapter:
         target.Range.Paragraphs(target.Range.Paragraphs.Count).Range.ParagraphFormat.Alignment = _enum(
             args.get("alignment", "center"), {"left": 0, "center": 1, "right": 2}, "alignment"
         )
-        doc.Fields.Update()
+        # Update only the header/footer story being edited. Updating
+        # ``doc.Fields`` here also recalculates unrelated TOCs and fields in
+        # the main story, which can make Word re-enter field evaluation while
+        # the document is being automated.
+        target.Range.Fields.Update()
         return {
             "op": "word_live_add_page_numbers",
             "section": int(args.get("section_index", 1)),
@@ -1429,6 +1443,23 @@ def _resolve_range(doc: Any, args: dict[str, Any]) -> Any:
     if "target_text" in args:
         return _find_first_range(doc, _required_string(args, "target_text"))
     return doc.Content.Duplicate
+
+
+def _range_overlaps_field(rng: Any) -> bool:
+    """Return whether a range is inside or contains a Word field."""
+    try:
+        if int(rng.Fields.Count) > 0:
+            return True
+    except Exception:
+        pass
+    # WdInformation values: 44 = in field code, 45 = in field result.
+    for information in (44, 45):
+        try:
+            if bool(rng.Information(information)):
+                return True
+        except Exception:
+            pass
+    return False
 
 
 def _find_first_range(doc: Any, text: str) -> Any:

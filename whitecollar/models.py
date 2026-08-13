@@ -288,8 +288,7 @@ def _validate_operation(app: str, raw: Any, index: int) -> dict[str, Any]:
         if operation == "word_live_find_text" and not ("find_text" in args or "search_text" in args):
             raise ValidationError(f"{context}.args is missing required field: search_text or find_text")
         if operation in {"word_live_delete_text", "word_live_format_text", "word_live_get_paragraph_format", "word_live_set_paragraph_spacing"}:
-            has_range = {"start", "end"}.issubset(args) or "start_paragraph" in args or "paragraph_index" in args
-            if not has_range:
+            if not _has_word_range(args):
                 raise ValidationError(f"{context}.args must identify a character or paragraph range")
         if operation == "word_live_add_comment" and not ("comment_text" in args or "text" in args):
             raise ValidationError(f"{context}.args requires text or comment_text")

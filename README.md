@@ -50,8 +50,10 @@ white-collar doctor
 ```
 
 Use a Python virtual environment when the installation must remain isolated.
-The command installs the CLI and the optional `pywin32` and `Pillow`
-dependencies. Microsoft Office is still a separate Windows prerequisite.
+The command installs the CLI and the optional `pywin32`, `Pillow`, and
+`python-docx` dependencies. The latter is used only to create the disposable
+bootstrap file for the real Word integration gate; live Office edits still go
+through Word COM. Microsoft Office is still a separate Windows prerequisite.
 
 ```powershell
 python -m venv .venv

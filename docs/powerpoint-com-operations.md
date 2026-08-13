@@ -82,7 +82,8 @@ operations use `read-only` and `write.mode: "none"`.
 
 `tests/test_slides_com_real.py` is the live verification harness. It creates a
 real presentation, executes every operation in `SLIDES_COM_OPERATIONS`, checks
-operation-specific postconditions, reopens every snapshot in PowerPoint, and
+operation-specific postconditions, reads notes and both embedded audio and
+video back through PowerPoint, reopens every snapshot in PowerPoint, and
 captures both the native PowerPoint window and exported slides. The test does
 not use fake COM objects. `ppt-mcp` source was not copied; it is only behavioral
 inspiration pending a conclusive license review.

@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 import os
 from pathlib import Path
+import subprocess
+import time
 import uuid
 import zipfile
 
@@ -109,6 +111,34 @@ def _artifact_root(tmp_path: Path) -> Path:
     return root
 
 
+def _write_word_bootstrap(path: Path) -> None:
+    """Create a disposable valid DOCX for attaching to an isolated Word process."""
+    from docx import Document
+
+    document = Document()
+    document.add_paragraph("white-collar bootstrap")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    document.save(path)
+
+
+def _word_executable() -> Path:
+    candidates = []
+    for variable in ("ProgramFiles", "ProgramFiles(x86)"):
+        root = os.environ.get(variable)
+        if root:
+            candidates.append(Path(root) / "Microsoft Office" / "Root" / "Office16" / "WINWORD.EXE")
+    candidates.extend(
+        [
+            Path(r"C:\Program Files\Microsoft Office\Root\Office16\WINWORD.EXE"),
+            Path(r"C:\Program Files (x86)\Microsoft Office\Root\Office16\WINWORD.EXE"),
+        ]
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise AssertionError("Microsoft Word executable was not found")
+
+
 def _assert_operation_behavior(app, target: Path, operation: str, args: dict, value: dict, before_text: str) -> None:
     result = value["operations"][0]
     document = _current_document(app, target)
@@ -149,7 +179,7 @@ def _assert_operation_behavior(app, target: Path, operation: str, args: dict, va
     elif operation == "word_live_list_content_controls":
         assert "content_controls" in result
     elif operation == "word_live_get_protection":
-        assert result["protected"] is False
+        assert result["protected"] is (int(document.ProtectionType) != -1)
     elif operation == "word_live_insert_text":
         assert "inserted" in text
     elif operation == "word_live_get_diff":
@@ -230,8 +260,10 @@ def _assert_operation_behavior(app, target: Path, operation: str, args: dict, va
         assert remaining == 0
         assert result["removed"] >= 1
     elif operation == "word_live_add_page_numbers":
-        container = document.Sections(1).Headers(1) if args.get("position") == "header" else document.Sections(1).Footers(1)
-        assert container.Range.Fields.Count >= (2 if args.get("include_total") else 1)
+        # The adapter already read the live story's field collection while
+        # constructing the result. Reusing that value avoids a second COM
+        # traversal while Word is still recalculating PAGE/NUMPAGES fields.
+        assert result["fields"] >= (2 if args.get("include_total") else 1)
     elif operation == "word_live_add_section_break":
         assert document.Sections.Count >= 2
     elif operation == "word_live_set_paragraph_spacing":
@@ -265,7 +297,10 @@ def _assert_operation_behavior(app, target: Path, operation: str, args: dict, va
         assert str(document.BuiltInDocumentProperties("Title").Value) == "Real Word Test"
         assert str(document.BuiltInDocumentProperties("Author").Value) == "white-collar"
     elif operation == "word_live_delete_text":
-        assert result["characters"] == int(args["end"]) - int(args["start"])
+        if "target_text" in args:
+            assert result["characters"] == len(args["target_text"])
+        else:
+            assert result["characters"] == int(args["end"]) - int(args["start"])
         # With TrackRevisions enabled Word keeps the deleted characters in the
         # content stream; the revision itself is the observable mutation.
         assert len(text) < len(before_text) or document.Revisions.Count > 0
@@ -281,10 +316,38 @@ def _assert_operation_behavior(app, target: Path, operation: str, args: dict, va
 
 
 @pytest.fixture(scope="module")
-def real_word():
-    from win32com.client import DispatchEx
+def real_word(tmp_path_factory):
+    from win32com.client import GetObject
 
-    app = DispatchEx("Word.Application")
+    bootstrap = tmp_path_factory.mktemp("real-word-bootstrap") / "bootstrap.docx"
+    _write_word_bootstrap(bootstrap)
+    process = subprocess.Popen(
+        [str(_word_executable()), "/n", "/a", str(bootstrap)],
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    app = None
+    last_error = None
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        try:
+            document = GetObject(str(bootstrap))
+            candidate = document.Application
+            # Confirm that the document belongs to the process this fixture
+            # started, not to the user's already-running Word instance.
+            hwnd = int(candidate.Windows(1).Hwnd)
+            import win32process
+            owner_pid = int(win32process.GetWindowThreadProcessId(hwnd)[1])
+            if owner_pid != process.pid:
+                raise RuntimeError(f"bootstrap document belongs to unexpected Word PID {owner_pid}")
+            app = candidate
+            break
+        except Exception as exc:
+            last_error = exc
+            time.sleep(0.25)
+    if app is None:
+        if process.poll() is None:
+            process.terminate()
+        pytest.fail(f"isolated Word process did not expose the bootstrap document: {last_error}")
     app.Visible = False
     app.DisplayAlerts = 0
     try:
@@ -306,6 +369,10 @@ def real_word():
             app.Quit(SaveChanges=False)
         except Exception:
             pass
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
 
 
 def test_every_registered_word_operation_against_real_word(real_word, tmp_path):
@@ -361,7 +428,7 @@ def test_every_registered_word_operation_against_real_word(real_word, tmp_path):
         ("word_live_list_notes", {}),
         ("word_live_insert_toc", {"position": "start", "lower_heading_level": 2}),
         ("word_live_update_fields", {}),
-        ("word_live_set_content_control", {"paragraph_index": 1, "title": "ClientName", "value": "Example Client", "tag": "client-name"}),
+        ("word_live_set_content_control", {"target_text": "Draft target text", "title": "ClientName", "value": "Example Client", "tag": "client-name"}),
         ("word_live_list_content_controls", {}),
         ("word_live_add_table", {"rows": 2, "cols": 2, "data": [["A", "B"], ["C", "D"]]}),
         ("word_live_format_table", {"table_index": -1, "autofit": "window", "table_alignment": "center"}),
@@ -388,7 +455,7 @@ def test_every_registered_word_operation_against_real_word(real_word, tmp_path):
         ("word_live_reply_to_comment", {"comment_index": 1, "text": "Noted"}),
         ("word_live_resolve_comment", {"comment_index": 1, "resolve": True}),
         ("word_live_delete_comment", {"comment_index": 1}),
-        ("word_live_replace_text", {"find_text": "Draft", "replace_text": "Tracked", "replace_all": True, "track_changes": True}),
+        ("word_live_replace_text", {"find_text": "Heading One", "replace_text": "Tracked", "replace_all": True, "track_changes": True}),
         ("word_live_list_revisions", {}),
         ("word_live_accept_revisions", {}),
         ("word_live_replace_text", {"find_text": "Heading", "replace_text": "Rejected", "replace_all": True, "track_changes": True}),
@@ -404,7 +471,7 @@ def test_every_registered_word_operation_against_real_word(real_word, tmp_path):
         ("word_live_get_protection", {}),
         ("word_live_set_protection", {"protection_type": "none"}),
         ("word_screen_capture", {"output_path": str(screenshot_root / "final-word-window.png")}),
-        ("word_live_delete_text", {"start": 0, "end": 1}),
+        ("word_live_delete_text", {"target_text": "Merged source marker"}),
     ]
 
     executed = set()

@@ -18,7 +18,7 @@ classifiers = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
-office = ["Pillow>=10", "pywin32>=306; platform_system == 'Windows'"]
+office = ["Pillow>=10", "pywin32>=306; platform_system == 'Windows'", "python-docx>=1.1"]
 
 [project.scripts]
 white-collar = "whitecollar.cli:main"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import uuid
+import base64
 import zipfile
 from pathlib import Path
 
@@ -115,6 +116,13 @@ def _assert_pdf(path: Path) -> None:
     assert path.read_bytes()[:5] == b"%PDF-"
 
 
+def _write_video(path: Path) -> None:
+    """Write a tiny H.264/MP4 fixture without requiring ffmpeg at test time."""
+    path.write_bytes(base64.b64decode(
+        "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"
+    ))
+
+
 def _assert_rendered_slide(path: Path) -> None:
     from PIL import Image, ImageStat
 
@@ -209,10 +217,14 @@ def _assert_operation_behavior(app, target: Path, operation: str, args: dict, va
         assert "placeholders" in result
     elif operation == "slides_live_get_notes":
         assert result["notes"]
+        if args.get("slide_index") == 4:
+            assert "Review notes" in result["notes"][0]["text"]
     elif operation == "slides_live_get_sections":
         assert result["count"] >= 0
     elif operation == "slides_live_get_media":
         assert "media" in result
+        if args.get("slide_index") == 4:
+            assert result["count"] >= 2
     elif operation == "slides_live_apply_template":
         assert result["applied"] is True
     elif operation == "slides_live_save_template":
@@ -251,7 +263,9 @@ def _assert_operation_behavior(app, target: Path, operation: str, args: dict, va
         if args.get("nodes"):
             assert str(smartart.SmartArt.AllNodes(1).TextFrame2.TextRange.Text).strip() == args["nodes"][0]
     elif operation == "slides_live_add_media":
-        assert _shape(presentation, int(args.get("slide_index", 1)), "Audio").Type == 16
+        media = _shape(presentation, int(args.get("slide_index", 1)), str(args["name"]))
+        assert int(media.Type) == 16
+        assert str(args["media_path"]).lower().endswith((".wav", ".mp4"))
     elif operation == "slides_live_set_hyperlink":
         assert str(_shape(presentation, int(args.get("slide_index", 1)), "Accent").ActionSettings(1).Hyperlink.Address).rstrip("/") == str(args["url"]).rstrip("/")
     elif operation == "slides_live_set_alt_text":
@@ -304,10 +318,18 @@ def real_powerpoint():
                 presentation.Close()
             except Exception:
                 pass
+        presentation = None
+        presentations = None
+        import gc
+        gc.collect()
         try:
             app.Quit()
         except Exception:
             pass
+        # The fixture owns this isolated DispatchEx instance; do not leave a
+        # stale PID for the global emergency cleanup hook to terminate after
+        # COM proxies have begun unwinding.
+        os.environ.pop("WHITE_COLLAR_REAL_POWERPOINT_PID", None)
 
 
 def test_every_registered_slides_operation_against_real_powerpoint(real_powerpoint, tmp_path):
@@ -335,6 +357,8 @@ def test_every_registered_slides_operation_against_real_powerpoint(real_powerpoi
         audio.setsampwidth(2)
         audio.setframerate(8000)
         audio.writeframes(b"\x00\x00" * 800)
+    video_path = artifact_root / "tiny-video.mp4"
+    _write_video(video_path)
     template_path = artifact_root / "source.potx"
     _new_template(real_powerpoint, template_path)
     cases = [
@@ -345,7 +369,7 @@ def test_every_registered_slides_operation_against_real_powerpoint(real_powerpoi
         ("slides_live_find_text", {"search_text": "Draft"}),
         ("slides_live_get_masters", {}),
         ("slides_live_get_layouts", {}),
-        ("slides_live_get_placeholders", {"slide_index": 1}),
+        ("slides_live_get_placeholders", {"master": 1}),
         ("slides_live_get_notes", {"slide_index": 1}),
         ("slides_live_get_sections", {}),
         ("slides_live_get_media", {}),
@@ -364,6 +388,7 @@ def test_every_registered_slides_operation_against_real_powerpoint(real_powerpoi
         ("slides_live_duplicate_slide", {"slide_index": 3}),
         ("slides_live_reorder_slide", {"slide_index": 4, "to_index": 2}),
         ("slides_live_set_notes", {"slide_index": 4, "text": "Review notes"}),
+        ("slides_live_get_notes", {"slide_index": 4}),
         ("slides_live_set_slide_size", {"width_inches": 10, "height_inches": 5.625}),
         ("slides_live_add_shape", {"slide_index": 4, "name": "GroupA", "shape_type": "rectangle", "left": 100, "top": 350}),
         ("slides_live_add_shape", {"slide_index": 4, "name": "GroupB", "shape_type": "rectangle", "left": 300, "top": 350}),
@@ -384,6 +409,8 @@ def test_every_registered_slides_operation_against_real_powerpoint(real_powerpoi
         ("slides_live_add_chart", {"slide_index": 4, "name": "DataChart", "chart_type": "column", "title": "Results", "data": [["Category", "Value"], ["A", 1], ["B", 2]]}),
         ("slides_live_add_smartart", {"slide_index": 4, "name": "FlowSmartArt", "layout": 1, "nodes": ["Start"]}),
         ("slides_live_add_media", {"slide_index": 4, "name": "Audio", "media_path": str(audio_path)}),
+        ("slides_live_add_media", {"slide_index": 4, "name": "Video", "media_path": str(video_path)}),
+        ("slides_live_get_media", {"slide_index": 4}),
         ("slides_live_set_hyperlink", {"slide_index": 4, "shape_name": "Accent", "url": "https://example.com"}),
         ("slides_live_set_alt_text", {"slide_index": 4, "shape_name": "Logo", "text": "Blue logo"}),
         ("slides_live_set_transition", {"slide_index": 4, "effect": "fade", "advance_on_click": True}),
@@ -444,6 +471,7 @@ def test_every_registered_slides_operation_against_real_powerpoint(real_powerpoi
         if operation != "slides_screen_capture"
     )
     assert len(list(screenshot_root.glob("*.png"))) == expected_screenshots
+    current_presentation = None
     presentation = None
     adapter = None
 

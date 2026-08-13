@@ -404,7 +404,11 @@ class PowerPointComAdapter:
 
     def _slides_live_get_media(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
         values = []
-        for slide_index, slide in enumerate(_iter_collection(presentation.Slides), start=1):
+        if args.get("slide_index") is not None:
+            slides = [(int(args["slide_index"]), _slide(presentation, int(args["slide_index"])))]
+        else:
+            slides = list(enumerate(_iter_collection(presentation.Slides), start=1))
+        for slide_index, slide in slides:
             for shape_index, shape in enumerate(_iter_collection(slide.Shapes), start=1):
                 shape_type = int(_safe_value(shape, "Type", 0))
                 media_type = _safe_value(shape, "MediaType")
@@ -902,37 +906,25 @@ def _chart_type(value: Any) -> int:
 
 
 def _write_chart_data(chart: Any, data: Any) -> None:
-    """Write a bounded rectangular matrix into an embedded PowerPoint chart."""
+    """Write a bounded rectangular matrix through PowerPoint's chart API."""
     if not isinstance(data, list) or not data or not all(isinstance(row, list) and row for row in data):
         raise ValidationError("chart data must be a non-empty array of non-empty rows")
     width = len(data[0])
-    if any(len(row) != width for row in data):
-        raise ValidationError("chart data must be rectangular")
-    workbook = None
+    if width < 2 or len(data) < 2 or any(len(row) != width for row in data):
+        raise ValidationError("chart data must be a rectangular matrix with categories and values")
     try:
-        chart.ChartData.Activate()
-        workbook = chart.ChartData.Workbook
-        sheet = workbook.Worksheets(1)
-        for row_index, row in enumerate(data, start=1):
-            for column_index, value in enumerate(row, start=1):
-                sheet.Cells(row_index, column_index).Value = value
-        address = sheet.Range(
-            sheet.Cells(1, 1),
-            sheet.Cells(len(data), width),
-        ).Address
-        # PowerPoint requires the embedded worksheet name in this address;
-        # the bare Excel range returned by Range.Address is rejected by some
-        # Office builds even though the cells themselves were written.
-        source = f"'{sheet.Name}'!{address}"
-        chart.SetSourceData(Source=source, PlotBy=2)
+        series_collection = chart.SeriesCollection()
+        # The first row contains series names; the first column contains the
+        # category labels. Assigning arrays directly avoids activating the
+        # embedded Excel workbook and keeps the operation within PowerPoint.
+        categories = tuple(row[0] for row in data[1:])
+        for column in range(1, width):
+            series = series_collection.NewSeries()
+            series.Name = str(data[0][column])
+            series.XValues = categories
+            series.Values = tuple(row[column] for row in data[1:])
     except Exception as exc:
         raise ValidationError("PowerPoint could not write the chart data", details={"reason": str(exc)}) from exc
-    finally:
-        if workbook is not None:
-            try:
-                workbook.Close()
-            except Exception:
-                pass
 
 
 def _transition_effect(value: Any) -> int:
