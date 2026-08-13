@@ -14,6 +14,11 @@ method names; there is no arbitrary dispatch escape hatch.
 | Links/accessibility/motion | `slides_live_set_hyperlink`, `slides_live_set_alt_text`, `slides_live_set_transition`, `slides_live_add_animation` |
 | Notes/output/capture | `slides_live_set_notes`, `slides_live_export_pdf`, `slides_live_save`, `slides_screen_capture` |
 
+For text operations, the semantic selectors `Title`, `Body`, `Content`, and
+`Subtitle` resolve PowerPoint's native placeholders when a slide has them.
+They do not create a replacement textbox. Use `slides_live_add_textbox` only
+when a deliberate freeform text box is wanted.
+
 `slides inspect --backend com --render-dir <directory>` is a separate
 read-only inspection option, not a plan operation. It opens a closed target
 read-only when needed and uses PowerPoint's native `Slide.Export` to write

@@ -2,7 +2,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from whitecollar.adapters.slides import PowerPointComAdapter
+from whitecollar.adapters.slides import PowerPointComAdapter, _shape
+
+
+class FakePlaceholder:
+    def __init__(self, name: str, placeholder_type: int) -> None:
+        self.Name = name
+        self.Type = 14
+        self.PlaceholderFormat = type("PlaceholderFormat", (), {"Type": placeholder_type})()
+
+
+class FakePlaceholderSlide:
+    def __init__(self) -> None:
+        self.Shapes = [
+            FakePlaceholder("Title 1", 1),
+            FakePlaceholder("Content Placeholder 2", 2),
+        ]
 
 
 class FakeSlide:
@@ -71,6 +86,13 @@ def test_powerpoint_inspect_renders_each_slide(tmp_path):
     for slide in presentation.Slides:
         assert slide.exports == [(str((tmp_path / "renders" / f"slide-{slide.index}.png").resolve()), "PNG", 1280, 720)]
     assert not presentation.closed
+
+
+def test_semantic_title_and_body_select_native_placeholders():
+    slide = FakePlaceholderSlide()
+
+    assert _shape(slide, {"shape_name": "Title"}).Name == "Title 1"
+    assert _shape(slide, {"shape_name": "Body"}).Name == "Content Placeholder 2"
 
 
 def test_powerpoint_inspect_does_not_overwrite_render(tmp_path):

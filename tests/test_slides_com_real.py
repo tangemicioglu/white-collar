@@ -54,12 +54,12 @@ def _add_textbox(slide, name: str, text: str, *, top: float) -> object:
 
 def _new_presentation(app, path: Path):
     presentation = app.Presentations.Add(True)
-    first = presentation.Slides.Add(1, 12)
-    _add_textbox(first, "Title", "Draft Review", top=40)
-    _add_textbox(first, "Body", "Draft status\rAgenda", top=130)
-    second = presentation.Slides.Add(2, 12)
-    _add_textbox(second, "Title", "Second Slide", top=40)
-    _add_textbox(second, "Body", "Planning notes", top=130)
+    first = presentation.Slides.Add(1, 2)  # ppLayoutText: native title/body placeholders
+    first.Shapes.Title.TextFrame.TextRange.Text = "Draft Review"
+    first.Shapes.Placeholders(2).TextFrame.TextRange.Text = "Draft status\rAgenda"
+    second = presentation.Slides.Add(2, 2)
+    second.Shapes.Title.TextFrame.TextRange.Text = "Second Slide"
+    second.Shapes.Placeholders(2).TextFrame.TextRange.Text = "Planning notes"
     presentation.SaveAs(FileName=str(path), FileFormat=24)
     return presentation
 
@@ -167,7 +167,12 @@ def _assert_operation_behavior(app, target: Path, operation: str, args: dict, va
     elif operation == "slides_live_find_text":
         assert result["matches"] and result["matches"][0]["slide_index"] == 1
     elif operation == "slides_live_insert_text":
+        slide = presentation.Slides(int(args.get("slide_index", 1)))
         assert "inserted" in _slide_text(presentation, int(args.get("slide_index", 1)))
+        assert any(
+            int(shape.Type) == 14 and int(shape.PlaceholderFormat.Type) in {2, 6, 7}
+            for shape in slide.Shapes
+        )
     elif operation in {"slides_live_replace_text", "replace_text"}:
         assert "Final" in _slide_text(presentation, 1)
         assert result["replacements"] >= 1

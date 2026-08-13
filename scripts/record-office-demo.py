@@ -401,16 +401,17 @@ def _slides_fixture(source: Path, root: Path, ffmpeg: str) -> tuple[Any, Any, di
         (("Draft Review", "Draft status\rAgenda"), ("Second Slide", "Planning notes")),
         start=1,
     ):
-        slide = presentation.Slides.Add(index, 12)  # ppLayoutBlank
-        title = slide.Shapes.AddTextbox(1, 55, 40, 850, 70)
-        title.Name = "Title"
-        title.TextFrame.TextRange.Text = title_text
-        title.TextFrame.TextRange.Font.Size = 28
-        title.TextFrame.TextRange.Font.Bold = True
-        body = slide.Shapes.AddTextbox(1, 55, 145, 850, 80)
-        body.Name = "Body"
-        body.TextFrame.TextRange.Text = body_text
-        body.TextFrame.TextRange.Font.Size = 22
+        # ppLayoutText gives the fixture real title/body placeholders.  The
+        # showcase should prove that the CLI edits PowerPoint's native fields,
+        # not merely add small freeform textboxes over a blank slide.
+        slide = presentation.Slides.Add(index, 2)  # ppLayoutText
+        placeholders = {
+            int(shape.PlaceholderFormat.Type): shape
+            for shape in slide.Shapes
+            if int(shape.Type) == 14
+        }
+        placeholders[1].TextFrame.TextRange.Text = title_text
+        placeholders[2].TextFrame.TextRange.Text = body_text
     presentation.SaveAs(FileName=str(source), FileFormat=24)
     assets = _write_slide_assets(ffmpeg, root)
     template = app.Presentations.Add(True)
@@ -953,7 +954,7 @@ def _legacy_slides_mutation_showcase(target: Path, root: Path, assets: dict[str,
 
     cases = [
         ("slides_live_align", {"slide_index": 4, "shape_names": ["Accent", "Logo"], "alignment": "left"}),
-        ("slides_live_distribute", {"slide_index": 4, "shape_names": ["Accent", "Logo", "Inserted Text"], "direction": "horizontal"}),
+        ("slides_live_distribute", {"slide_index": 4, "shape_names": ["Accent", "Logo", "Body"], "direction": "horizontal"}),
         ("slides_live_z_order", {"slide_index": 4, "shape_name": "Accent", "command": "bring_to_front"}),
         ("slides_live_crop_image", {"slide_index": 4, "shape_name": "Logo", "left": 2, "top": 2, "right": 1, "bottom": 1}),
         ("slides_live_rotate_shape", {"slide_index": 4, "shape_name": "Accent", "degrees": 15}),
@@ -1368,10 +1369,10 @@ def _slides_continuous_showcase(app: Any, presentation: Any, target: Path, root:
         ("slides_live_get_media", {}),
         ("slides_live_apply_template", {"source_path": str(assets["template"])}),
         ("slides_live_add_slide", {"slide_index": 3, "title": "New Slide"}),
+        ("slides_live_set_layout", {"slide_index": 3, "layout": 2}),
         ("slides_live_set_title", {"slide_index": 3, "title": "Reviewed Slide"}),
-        ("slides_live_add_textbox", {"slide_index": 3, "name": "Inserted Text", "text": "Added body", "top": 130}),
-        ("slides_live_format_text", {"slide_index": 3, "shape_name": "Inserted Text", "font_name": "Arial", "font_size": 24, "bold": True}),
-        ("slides_live_set_layout", {"slide_index": 3, "layout": 1}),
+        ("slides_live_insert_text", {"slide_index": 3, "shape_name": "Body", "text": "Added body\r"}),
+        ("slides_live_format_text", {"slide_index": 3, "shape_name": "Body", "font_name": "Arial", "font_size": 24, "bold": True}),
         ("slides_live_add_shape", {"slide_index": 3, "name": "Accent", "shape_type": "rectangle", "fill_color": "204060"}),
         ("slides_live_add_image", {"slide_index": 3, "name": "Logo", "image_path": str(assets["image"]), "top": 240, "width": 120, "height": 75}),
         ("slides_live_set_background", {"slide_index": 3, "color": "F0F4F8"}),
@@ -1403,7 +1404,7 @@ def _slides_continuous_showcase(app: Any, presentation: Any, target: Path, root:
     remaining_operations = [
         ("slides_live_ungroup", {"slide_index": 4, "shape_name": group_name}),
         ("slides_live_align", {"slide_index": 4, "shape_names": ["Accent", "Logo"], "alignment": "left"}),
-        ("slides_live_distribute", {"slide_index": 4, "shape_names": ["Accent", "Logo", "Inserted Text"], "direction": "horizontal"}),
+        ("slides_live_distribute", {"slide_index": 4, "shape_names": ["Accent", "Logo", "Body"], "direction": "horizontal"}),
         ("slides_live_z_order", {"slide_index": 4, "shape_name": "Accent", "command": "bring_to_front"}),
         ("slides_live_crop_image", {"slide_index": 4, "shape_name": "Logo", "left": 2, "top": 2, "right": 1, "bottom": 1}),
         ("slides_live_rotate_shape", {"slide_index": 4, "shape_name": "Accent", "degrees": 15}),

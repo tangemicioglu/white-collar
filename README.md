@@ -50,8 +50,9 @@ same broad real-operation coverage as the Word and PowerPoint E2E gates. Word
 starts as a blank real document and is filled through short CLI chapters; the
 same live Word window remains visible while content, formatting, tables,
 comments, revisions, layout, metadata, and exports are exercised. PowerPoint
-shows the actual affected slide as slides, shapes, charts, notes, sections,
-media, motion, templates, and exports are applied. The fixtures are disposable
+shows the actual affected slide as its native title/body placeholders, slides,
+shapes, charts, notes, sections, media, motion, templates, and exports are
+applied. The fixtures are disposable
 and synthetic; the edits are performed by the live COM adapters, not by a mock
 or a rendered animation.
 

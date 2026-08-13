@@ -239,9 +239,16 @@ class PowerPointComAdapter:
 
     def _slides_live_add_slide(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
         index = int(args.get("slide_index", int(presentation.Slides.Count) + 1))
-        slide = presentation.Slides.Add(index, 12)
+        # ppLayoutText supplies PowerPoint's native title and body
+        # placeholders.  Keep the semantic slide structure intact instead of
+        # manufacturing a small title textbox on a blank canvas.
+        slide = presentation.Slides.Add(index, 2)
         title = str(args.get("title", "New Slide"))
-        _add_textbox(slide, title, {"name": "Title", "left": 60, "top": 40, "width": 600, "height": 60})
+        title_shape = _shape(slide, {"shape_name": "Title"}, required=False)
+        if title_shape is not None:
+            title_shape.TextFrame.TextRange.Text = title
+        else:
+            _add_textbox(slide, title, {"name": "Title", "left": 60, "top": 40, "width": 600, "height": 60})
         return {"op": "slides_live_add_slide", "slide_index": index, "slides": int(presentation.Slides.Count)}
 
     def _slides_live_delete_slide(self, app: Any, presentation: Any, args: dict[str, Any]) -> dict[str, Any]:
@@ -853,6 +860,20 @@ def _shape(slide: Any, args: dict[str, Any], *, required: bool = True) -> Any | 
             return slide.Shapes(int(index))
         except Exception:
             pass
+    if name:
+        semantic_types = {
+            "title": {1, 3, 5},
+            "subtitle": {4},
+            "body": {2, 6, 7},
+            "content": {2, 6, 7},
+        }.get(str(name).strip().casefold())
+        if semantic_types:
+            for shape in _iter_collection(slide.Shapes):
+                if int(_safe_value(shape, "Type", 0)) != 14:
+                    continue
+                placeholder_type = int(_safe_value(shape, "PlaceholderFormat.Type", 0))
+                if placeholder_type in semantic_types:
+                    return shape
     if required:
         raise ValidationError("shape_name or shape_index must identify an existing shape")
     return None
@@ -865,7 +886,14 @@ def _shape_range(slide: Any, args: dict[str, Any]) -> Any:
         shape = _shape(slide, args)
         item = str(_safe_value(shape, "Name", "")) if args.get("shape_name") else int(args.get("shape_index", 1))
         return slide.Shapes.Range((item,))
-    items = tuple(str(value) for value in names) if names is not None else tuple(int(value) for value in indices)
+    if names is not None:
+        resolved_names = []
+        for value in names:
+            shape = _shape(slide, {"shape_name": str(value)}, required=False)
+            resolved_names.append(str(_safe_value(shape, "Name", value)) if shape is not None else str(value))
+        items = tuple(resolved_names)
+    else:
+        items = tuple(int(value) for value in indices)
     if len(items) < 1:
         raise ValidationError("shape_names or shape_indices must contain at least one item")
     try:
