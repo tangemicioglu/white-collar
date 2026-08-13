@@ -52,6 +52,10 @@ visual continuity without changing normal save-as behavior or permission
 defaults. A few Word title changes reflect real COM save-as boundaries; the
 document is not closed and reopened for every operation.
 
+For a shorter review, use the [2x accelerated showcase](docs/demo/white-collar-office-demo-2x.mp4).
+It is a post-processed copy of the same recording; the full-speed video remains
+available when the individual transitions need closer inspection.
+
 The CLI’s own `word_screen_capture` and `slides_screen_capture` operations
 remain sensitive, explicit-grant capabilities; the README video uses a local
 window recorder instead, so recording does not broaden the Office permission
