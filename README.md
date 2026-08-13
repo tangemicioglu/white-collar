@@ -1,10 +1,6 @@
 # white-collar
 
-<p align="center">
-  <video src="https://github.com/tangemicioglu/white-collar/raw/refs/heads/main/docs/demo/white-collar-office-demo-2x.mp4" controls muted playsinline width="100%">
-    <a href="docs/demo/white-collar-office-demo-2x.mp4">Watch the Office showcase</a>
-  </video>
-</p>
+![white-collar Office workflow demo](docs/demo/white-collar-office-demo.gif)
 
 `white-collar` lets an agent work with real Microsoft Office documents through a
 small, predictable local CLI. An agent can inspect a file, propose a structured
@@ -49,7 +45,7 @@ Their app-specific operation catalogs are documented in `docs/`.
 
 ## Recorded showcase
 
-The [recorded Office showcase](docs/demo/white-collar-office-demo-2x.mp4) runs the
+The recorded Office showcase runs the
 same broad real-operation coverage as the Word and PowerPoint E2E gates. Word
 starts as a blank real document and is filled through short CLI chapters; the
 same live Word window remains visible while content, formatting, tables,
