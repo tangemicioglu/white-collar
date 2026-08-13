@@ -56,6 +56,110 @@ def _maximize_window(hwnd: int) -> str:
     return win32gui.GetWindowText(hwnd)
 
 
+def _show_slide(app: Any, presentation: Any, slide_index: int) -> None:
+    """Put the slide being demonstrated in the visible PowerPoint editor."""
+
+    try:
+        app.Visible = True
+    except Exception:
+        pass
+    try:
+        window = presentation.Windows(1)
+        window.Activate()
+        window.View.GotoSlide(int(slide_index))
+    except Exception:
+        try:
+            presentation.Slides(int(slide_index)).Select()
+        except Exception:
+            pass
+    time.sleep(1.0)
+
+
+def _activate_word_result(app: Any, output: Path, root: Path) -> Any:
+    """Open the saved result for the next staged CLI plan.
+
+    Review plans intentionally use save-as.  On Word builds where SaveCopyAs
+    is unavailable, the adapter restores the original target after saving.  A
+    showcase needs the saved result to become the next target so the visible
+    document accumulates the staged changes.
+    """
+
+    output = output.resolve()
+    matching = None
+    documents = [app.Documents(index) for index in range(1, int(app.Documents.Count) + 1)]
+    for document in documents:
+        full_name = str(getattr(document, "FullName", ""))
+        try:
+            in_fixture = Path(full_name).resolve().is_relative_to(root.resolve())
+        except (OSError, ValueError):
+            in_fixture = False
+        if not in_fixture:
+            continue
+        if Path(full_name).resolve() == output:
+            matching = document
+        else:
+            try:
+                document.Close(SaveChanges=False)
+            except Exception:
+                pass
+    if matching is None:
+        last_error = None
+        for attempt in range(12):
+            try:
+                matching = app.Documents.Open(FileName=str(output), ReadOnly=False, AddToRecentFiles=False)
+                break
+            except Exception as exc:
+                last_error = exc
+                time.sleep(0.5 + attempt * 0.25)
+        if matching is None:
+            raise RuntimeError(f"Word did not reopen the staged result: {output}") from last_error
+    matching.Activate()
+    _maximize_window(int(app.Windows(1).Hwnd))
+    return matching
+
+
+def _activate_slides_result(app: Any, output: Path, root: Path) -> Any:
+    """Open a staged PowerPoint result and make its editor window active."""
+
+    output = output.resolve()
+    matching = None
+    presentations = [app.Presentations(index) for index in range(1, int(app.Presentations.Count) + 1)]
+    for presentation in presentations:
+        full_name = str(getattr(presentation, "FullName", ""))
+        try:
+            in_fixture = Path(full_name).resolve().is_relative_to(root.resolve())
+        except (OSError, ValueError):
+            in_fixture = False
+        if not in_fixture:
+            continue
+        if Path(full_name).resolve() == output:
+            matching = presentation
+        else:
+            try:
+                presentation.Close()
+            except Exception:
+                pass
+    if matching is None:
+        last_error = None
+        for attempt in range(16):
+            try:
+                matching = app.Presentations.Open(
+                    FileName=str(output),
+                    ReadOnly=False,
+                    Untitled=False,
+                    WithWindow=True,
+                )
+                break
+            except Exception as exc:
+                last_error = exc
+                time.sleep(0.6 + attempt * 0.3)
+        if matching is None:
+            raise RuntimeError(f"PowerPoint did not reopen the staged result: {output}") from last_error
+    matching.Windows(1).Activate()
+    _maximize_window(int(matching.Windows(1).Hwnd))
+    return matching
+
+
 def _ffmpeg_path() -> str:
     value = shutil.which("ffmpeg")
     if not value:
@@ -262,18 +366,7 @@ def _word_fixture(source: Path, root: Path) -> tuple[Any, Any, dict[str, Path]]:
     app.DisplayAlerts = 0
     app.Visible = True
     document = app.Documents.Add()
-    document.Range(0, 0).InsertAfter(
-        "Draft target text\rHeading One\rHeading Two\r"
-        "A short paragraph for the white-collar showcase.\r"
-    )
-    document.Paragraphs(2).Style = document.Styles("Heading 1")
-    document.Paragraphs(3).Style = document.Styles("Heading 2")
     document.SaveAs2(FileName=str(source), FileFormat=12)
-    # Save one real comment into the fixture first.  Word then carries its
-    # modern comments extension into save-as copies, which lets the CLI demo
-    # exercise resolve_comment without requiring an in-place edit grant.
-    document.Comments.Add(document.Range(0, 5), "Seed comment")
-    document.Save()
     hwnd = int(app.Windows(1).Hwnd)
     pid = int(win32process.GetWindowThreadProcessId(hwnd)[1])
     if existing_pid is not None and pid == existing_pid:
@@ -373,11 +466,19 @@ def _apply_operation(
     sequence: int,
     *,
     pause: float = 0.8,
+    live: bool = False,
+    display_pause: float | None = None,
 ) -> dict[str, Any]:
     read_operations = WORD_COM_READ_OPERATIONS if app == "word" else SLIDES_COM_READ_OPERATIONS
     if operation in read_operations:
         policy = "read-only"
         write = {"mode": "none"}
+    elif live:
+        policy = "edit"
+        write = {
+            "mode": "in-place",
+            "snapshot": str((root / "snapshots" / f"{app}-{sequence:03d}.{'docx' if app == 'word' else 'pptx'}").resolve()),
+        }
     else:
         policy = "review"
         output = _output_for(app, operation, root, sequence)
@@ -385,17 +486,17 @@ def _apply_operation(
         write = {"mode": "save-as", "path": str(output.resolve())}
     plan_path = root / "plans" / f"{app}-{sequence:03d}-{operation}.json"
     plan_path.parent.mkdir(parents=True, exist_ok=True)
-    _write_plan(
-        plan_path,
-        {
-            "schema": "white-collar.plan/v1",
-            "app": app,
-            "target": {"path": str(target.resolve())},
-            "policy": policy,
-            "operations": [{"op": operation, "args": args}],
-            "write": write,
-        },
-    )
+    plan = {
+        "schema": "white-collar.plan/v1",
+        "app": app,
+        "target": {"path": str(target.resolve())},
+        "policy": policy,
+        "operations": [{"op": operation, "args": args}],
+        "write": write,
+    }
+    if display_pause is not None:
+        plan["display"] = {"pause_after_operation": display_pause, "keep_live_as_output": live}
+    _write_plan(plan_path, plan)
     value = _run_cli([app, "apply", "--plan", str(plan_path), "--backend", "com"])
     time.sleep(pause)
     return value
@@ -407,30 +508,39 @@ def _apply_batch(
     operations: list[tuple[str, dict[str, Any]]],
     root: Path,
     sequence: int,
+    *,
+    live: bool = False,
+    display_pause: float | None = None,
+    keep_live: bool = False,
 ) -> dict[str, Any]:
     """Run stateful operations in one CLI process (snapshot/diff/undo)."""
 
     read_operations = WORD_COM_READ_OPERATIONS if app == "word" else SLIDES_COM_READ_OPERATIONS
     is_mutation = any(operation not in read_operations for operation, _args in operations)
-    policy = "review" if is_mutation else "read-only"
+    policy = "edit" if live and is_mutation else ("review" if is_mutation else "read-only")
     write = {"mode": "none"}
     if is_mutation:
-        output = _output_for(app, operations[0][0], root, sequence)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        write = {"mode": "save-as", "path": str(output.resolve())}
+        if live:
+            snapshot = root / "snapshots" / f"{app}-{sequence:03d}.{'docx' if app == 'word' else 'pptx'}"
+            snapshot.parent.mkdir(parents=True, exist_ok=True)
+            write = {"mode": "in-place", "snapshot": str(snapshot.resolve())}
+        else:
+            output = _output_for(app, operations[0][0], root, sequence)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            write = {"mode": "save-as", "path": str(output.resolve())}
     plan_path = root / "plans" / f"{app}-{sequence:03d}-batch.json"
     plan_path.parent.mkdir(parents=True, exist_ok=True)
-    _write_plan(
-        plan_path,
-        {
-            "schema": "white-collar.plan/v1",
-            "app": app,
-            "target": {"path": str(target.resolve())},
-            "policy": policy,
-            "operations": [{"op": operation, "args": args} for operation, args in operations],
-            "write": write,
-        },
-    )
+    plan = {
+        "schema": "white-collar.plan/v1",
+        "app": app,
+        "target": {"path": str(target.resolve())},
+        "policy": policy,
+        "operations": [{"op": operation, "args": args} for operation, args in operations],
+        "write": write,
+    }
+    if display_pause is not None:
+        plan["display"] = {"pause_after_operation": display_pause, "keep_live_as_output": keep_live}
+    _write_plan(plan_path, plan)
     value = _run_cli([app, "apply", "--plan", str(plan_path), "--backend", "com"])
     time.sleep(1.2)
     return value
@@ -463,7 +573,7 @@ def _word_read_showcase(target: Path, root: Path) -> None:
     )
 
 
-def _word_mutation_showcase(target: Path, root: Path, assets: dict[str, Path]) -> None:
+def _legacy_word_mutation_showcase(target: Path, root: Path, assets: dict[str, Path]) -> None:
     _apply_batch(
         "word",
         target,
@@ -608,7 +718,183 @@ def _word_mutation_showcase(target: Path, root: Path, assets: dict[str, Path]) -
     )
 
 
-def _slides_read_showcase(target: Path, root: Path) -> None:
+def _word_mutation_showcase(app: Any, target: Path, root: Path, assets: dict[str, Path]) -> None:
+    """Run Word in visible, cumulative chapters through the public CLI."""
+
+    current_target = target.resolve()
+    sequence = 1
+
+    def stage(operations: list[tuple[str, dict[str, Any]]], *, hold: float = 1.8) -> None:
+        nonlocal current_target, sequence
+        is_mutation = any(operation not in WORD_COM_READ_OPERATIONS for operation, _args in operations)
+        _apply_batch("word", current_target, operations, root, sequence, live=is_mutation)
+        sequence += 1
+        time.sleep(hold)
+
+    def single(operation: str, args: dict[str, Any], *, hold: float = 1.4) -> None:
+        nonlocal sequence
+        _apply_operation("word", current_target, operation, args, root, sequence)
+        sequence += 1
+        time.sleep(hold)
+
+    # The opening shot is intentionally an empty, valid Word document.  The
+    # first CLI plan visibly fills it with real content.
+    stage(
+        [
+            (
+                "word_live_insert_text",
+                {
+                    "text": (
+                        "Draft target text\rHeading One\rHeading Two\r"
+                        "A short paragraph for the white-collar showcase.\r"
+                    ),
+                    "position": "end",
+                },
+            )
+        ],
+        hold=2.5,
+    )
+    stage(
+        [
+            ("word_live_list_open", {}),
+            ("word_live_get_text", {}),
+            ("word_live_take_snapshot", {}),
+            ("word_live_snapshot_status", {}),
+            ("word_live_get_page_text", {"page": 1}),
+            ("word_live_get_paragraph_format", {"start_paragraph": 1, "end_paragraph": 2}),
+            ("word_live_get_info", {}),
+            ("word_live_list_styles", {}),
+            ("word_live_list_hyperlinks", {}),
+            ("word_live_list_notes", {}),
+            ("word_live_list_content_controls", {}),
+            ("word_live_get_protection", {}),
+            ("word_live_find_text", {"search_text": "Draft", "max_results": 10}),
+            ("word_live_list_cross_reference_items", {}),
+            ("word_live_diagnose_layout", {}),
+            ("word_live_get_comments", {}),
+        ],
+        hold=1.5,
+    )
+    stage(
+        [
+            ("word_live_replace_text", {"find_text": "Draft target text", "replace_text": "Reviewed target text", "replace_all": True}),
+            ("word_live_insert_paragraphs", {"paragraphs": ["Inserted A", "Inserted B"], "position": "end"}),
+            ("word_live_format_text", {"start_paragraph": 1, "end_paragraph": 1, "bold": True, "font_name": "Arial", "font_size": 16}),
+            ("word_live_apply_style", {"paragraph_index": 1, "style_name": "Title"}),
+            ("word_live_apply_list", {"start_paragraph": 2, "end_paragraph": 3, "list_type": "bullet"}),
+            ("word_live_set_paragraph_spacing", {"paragraph_index": 1, "space_after_pt": 6, "line_spacing_rule": "single"}),
+        ],
+        hold=2.2,
+    )
+    stage(
+        [
+            ("word_live_take_snapshot", {}),
+            ("word_live_insert_text", {"text": " inserted", "position": "end"}),
+            ("word_live_get_diff", {}),
+            ("word_live_add_hyperlink", {"paragraph_index": 1, "url": "https://example.com", "display_text": "Example"}),
+            ("word_live_list_hyperlinks", {}),
+            ("word_live_remove_hyperlink", {"hyperlink_index": 1}),
+            ("word_live_list_hyperlinks", {}),
+            ("word_live_add_note", {"paragraph_index": 1, "text": "Footnote text", "note_type": "footnote"}),
+            ("word_live_list_notes", {}),
+            ("word_live_set_content_control", {"target_text": "Reviewed target text", "title": "ClientName", "value": "Example Client", "tag": "client-name"}),
+            ("word_live_list_content_controls", {}),
+            ("word_live_add_bookmark", {"paragraph_index": 1, "bookmark_name": "CrossRef"}),
+            ("word_live_list_cross_reference_items", {}),
+            ("word_live_insert_cross_reference", {"ref_type": "Bookmark", "ref_item": "CrossRef", "paragraph_index": 1}),
+        ],
+        hold=2.2,
+    )
+    stage(
+        [
+            ("word_live_add_table", {"rows": 2, "cols": 2, "data": [["A", "B"], ["C", "D"]]}),
+            ("word_live_format_table", {"table_index": -1, "autofit": "window", "table_alignment": "center"}),
+            ("word_live_modify_table", {"table_index": 1, "operation": "set_cell", "row": 1, "col": 1, "text": "Changed"}),
+            ("word_live_insert_image", {"image_path": str(assets["image"]), "position": "end", "width_pt": 72, "height_pt": 40}),
+            ("word_live_insert_equation", {"equation": "x = y", "position": "end"}),
+        ],
+        hold=2.2,
+    )
+    stage(
+        [
+            ("word_live_add_comment", {"start": 6, "end": 18, "text": "Review this"}),
+            ("word_live_get_comments", {}),
+            ("word_live_save", {}),
+        ],
+        hold=2.0,
+    )
+    stage(
+        [
+            ("word_live_add_comment", {"start": 20, "end": 32, "text": "Second review"}),
+            ("word_live_get_comments", {}),
+            ("word_live_reply_to_comment", {"comment_index": 2, "text": "Noted"}),
+            ("word_live_resolve_comment", {"comment_index": 2, "resolve": True}),
+            ("word_live_save", {}),
+        ],
+        hold=2.0,
+    )
+    stage([("word_live_delete_comment", {"comment_index": 2})], hold=1.5)
+    stage(
+        [
+            ("word_live_replace_text", {"find_text": "Heading One", "replace_text": "Tracked", "replace_all": True, "track_changes": True}),
+            ("word_live_list_revisions", {}),
+            ("word_live_accept_revisions", {}),
+            ("word_live_replace_text", {"find_text": "Heading Two", "replace_text": "Rejected", "replace_all": True, "track_changes": True}),
+            ("word_live_reject_revisions", {}),
+            ("word_live_toggle_track_changes", {"enable": True}),
+        ],
+        hold=2.0,
+    )
+    stage(
+        [
+            ("word_live_set_protection", {"protection_type": "read_only"}),
+            ("word_live_get_protection", {}),
+            ("word_live_set_protection", {"protection_type": "none"}),
+        ],
+        hold=1.8,
+    )
+    stage(
+        [
+            ("word_live_set_page_layout", {"orientation": "portrait", "page_width_inches": 8.5, "page_height_inches": 11}),
+            ("word_live_add_header_footer", {"header_text": "White-collar showcase", "footer_text": "Live COM"}),
+            ("word_live_add_watermark", {"text": "DRAFT"}),
+            ("word_live_add_page_numbers", {"position": "footer", "alignment": "center", "prefix": "Page "}),
+            ("word_live_add_page_numbers", {"position": "header", "alignment": "right", "prefix": "Page ", "include_total": True, "suffix": " total"}),
+        ],
+        hold=2.5,
+    )
+    stage(
+        [
+            ("word_live_remove_watermark", {"text": "DRAFT"}),
+            ("word_live_remove_header_footer", {"position": "both", "section_index": 1}),
+            ("word_live_add_section_break", {"break_type": "new_page"}),
+            ("word_live_insert_toc", {"position": "start", "lower_heading_level": 2}),
+            ("word_live_update_fields", {}),
+        ],
+        hold=2.2,
+    )
+    stage(
+        [
+            ("word_live_setup_heading_numbering", {"h1_paragraphs": [2], "h2_paragraphs": [3]}),
+            ("word_live_get_undo_history", {}),
+            ("word_live_set_core_properties", {"title": "White-collar showcase", "author": "white-collar"}),
+            ("word_live_save", {}),
+            ("word_live_undo", {"times": 1}),
+        ],
+        hold=2.0,
+    )
+    single("word_live_compare_documents", {"source_path": str(assets["compare"])}, hold=1.2)
+    single("word_live_export_pdf", {}, hold=1.2)
+    stage(
+        [
+            ("word_live_merge_document", {"source_path": str(assets["merge"])}),
+            ("word_live_delete_text", {"target_text": "Merged source marker"}),
+        ],
+        hold=2.0,
+    )
+
+
+def _slides_read_showcase(target: Path, root: Path, sequence: int = 1) -> None:
     _apply_batch(
         "slides",
         target,
@@ -626,11 +912,11 @@ def _slides_read_showcase(target: Path, root: Path) -> None:
             ("slides_live_get_media", {}),
         ],
         root,
-        1,
+        sequence,
     )
 
 
-def _slides_mutation_showcase(target: Path, root: Path, assets: dict[str, Path]) -> None:
+def _legacy_slides_mutation_showcase(target: Path, root: Path, assets: dict[str, Path]) -> None:
     cases: list[tuple[str, dict[str, Any]]] = [
         ("slides_live_insert_text", {"slide_index": 1, "shape_name": "Body", "text": " inserted"}),
         ("slides_live_replace_text", {"find_text": "Draft", "replace_text": "Final", "replace_all": True}),
@@ -696,6 +982,456 @@ def _slides_mutation_showcase(target: Path, root: Path, assets: dict[str, Path])
         sequence += 1
 
 
+def _slides_mutation_showcase(app: Any, presentation: Any, target: Path, root: Path, assets: dict[str, Path]) -> None:
+    """Run PowerPoint in visible chapters and focus the changed slide."""
+
+    current_presentation = presentation
+    current_target = target.resolve()
+    sequence = 1
+    read_operations = SLIDES_COM_READ_OPERATIONS
+
+    def stage(
+        operations: list[tuple[str, dict[str, Any]]],
+        *,
+        slide_index: int | None = None,
+        after_slide_index: int | None = None,
+        hold: float = 1.8,
+    ) -> None:
+        nonlocal sequence
+        if slide_index is not None:
+            _show_slide(app, current_presentation, slide_index)
+        is_mutation = any(operation not in read_operations for operation, _args in operations)
+        _apply_batch("slides", current_target, operations, root, sequence, live=is_mutation)
+        if after_slide_index is not None:
+            _show_slide(app, current_presentation, after_slide_index)
+        elif slide_index is not None:
+            _show_slide(app, current_presentation, slide_index)
+        sequence += 1
+        time.sleep(hold)
+
+    def single(
+        operation: str,
+        args: dict[str, Any],
+        *,
+        slide_index: int | None = None,
+        after_slide_index: int | None = None,
+        hold: float = 1.4,
+        live: bool = False,
+    ) -> dict[str, Any]:
+        nonlocal sequence
+        if slide_index is not None:
+            _show_slide(app, current_presentation, slide_index)
+        value = _apply_operation("slides", current_target, operation, args, root, sequence, live=live)
+        if after_slide_index is not None:
+            _show_slide(app, current_presentation, after_slide_index)
+        elif slide_index is not None:
+            _show_slide(app, current_presentation, slide_index)
+        sequence += 1
+        time.sleep(hold)
+        return value
+
+    # Make the first visible change on slide 1, then run reads against the
+    # resulting presentation so the recording starts with a real CLI edit.
+    stage(
+        [
+            ("slides_live_insert_text", {"slide_index": 1, "shape_name": "Body", "text": " inserted"}),
+            ("slides_live_replace_text", {"find_text": "Draft", "replace_text": "Final", "replace_all": True}),
+        ],
+        slide_index=1,
+        hold=2.2,
+    )
+    _slides_read_showcase(current_target, root, sequence)
+    sequence += 1
+    _show_slide(app, current_presentation, 1)
+    time.sleep(1.5)
+
+    stage(
+        [("slides_live_apply_template", {"source_path": str(assets["template"])})],
+        slide_index=1,
+        hold=2.0,
+    )
+    single("slides_live_save_template", {}, slide_index=1, hold=1.0)
+    stage(
+        [
+            ("slides_live_add_slide", {"slide_index": 3, "title": "New Slide"}),
+            ("slides_live_set_title", {"slide_index": 3, "title": "Reviewed Slide"}),
+            ("slides_live_add_textbox", {"slide_index": 3, "name": "Inserted Text", "text": "Added body", "top": 130}),
+            ("slides_live_format_text", {"slide_index": 3, "shape_name": "Inserted Text", "font_name": "Arial", "font_size": 24, "bold": True}),
+            ("slides_live_set_layout", {"slide_index": 3, "layout": 1}),
+        ],
+        slide_index=3,
+        hold=2.5,
+    )
+    stage(
+        [
+            ("slides_live_add_shape", {"slide_index": 3, "name": "Accent", "shape_type": "rectangle", "fill_color": "204060"}),
+            ("slides_live_add_image", {"slide_index": 3, "name": "Logo", "image_path": str(assets["image"]), "top": 240, "width": 120, "height": 75}),
+            ("slides_live_set_background", {"slide_index": 3, "color": "F0F4F8"}),
+        ],
+        slide_index=3,
+        hold=2.2,
+    )
+    stage(
+        [
+            ("slides_live_duplicate_slide", {"slide_index": 3}),
+            ("slides_live_reorder_slide", {"slide_index": 4, "to_index": 2}),
+        ],
+        slide_index=4,
+        hold=2.0,
+    )
+    stage(
+        [
+            ("slides_live_set_notes", {"slide_index": 4, "text": "Review notes from the CLI"}),
+            ("slides_live_get_notes", {"slide_index": 4}),
+            ("slides_live_set_slide_size", {"width_inches": 10, "height_inches": 5.625}),
+        ],
+        slide_index=4,
+        hold=2.0,
+    )
+    stage(
+        [
+            ("slides_live_add_shape", {"slide_index": 4, "name": "GroupA", "shape_type": "rectangle", "left": 100, "top": 350}),
+            ("slides_live_add_shape", {"slide_index": 4, "name": "GroupB", "shape_type": "rectangle", "left": 300, "top": 350}),
+        ],
+        slide_index=4,
+        hold=2.0,
+    )
+    group_result = single(
+        "slides_live_group",
+        {"slide_index": 4, "shape_names": ["GroupA", "GroupB"]},
+        slide_index=4,
+        hold=1.8,
+        live=True,
+    )
+    group_name = group_result["data"]["operations"][0]["shape"]
+    single(
+        "slides_live_ungroup",
+        {"slide_index": 4, "shape_name": group_name},
+        slide_index=4,
+        hold=1.8,
+        live=True,
+    )
+    stage(
+        [
+            ("slides_live_align", {"slide_index": 4, "shape_names": ["Accent", "Logo"], "alignment": "left"}),
+            ("slides_live_distribute", {"slide_index": 4, "shape_names": ["Accent", "Logo", "Inserted Text"], "direction": "horizontal"}),
+            ("slides_live_z_order", {"slide_index": 4, "shape_name": "Accent", "command": "bring_to_front"}),
+            ("slides_live_crop_image", {"slide_index": 4, "shape_name": "Logo", "left": 2, "top": 2, "right": 1, "bottom": 1}),
+            ("slides_live_rotate_shape", {"slide_index": 4, "shape_name": "Accent", "degrees": 15}),
+        ],
+        slide_index=4,
+        hold=2.2,
+    )
+    stage(
+        [
+            ("slides_live_add_table", {"slide_index": 4, "name": "DataTable", "rows": 2, "columns": 2, "data": [["A", "B"], ["C", "D"]]}),
+            ("slides_live_set_table_cell", {"slide_index": 4, "shape_name": "DataTable", "row": 1, "column": 1, "text": "Updated"}),
+            ("slides_live_add_chart", {"slide_index": 4, "name": "DataChart", "chart_type": "column", "title": "Results", "data": [["Category", "Value"], ["A", 1], ["B", 2]]}),
+            ("slides_live_add_smartart", {"slide_index": 4, "name": "FlowSmartArt", "layout": 1, "nodes": ["Start"]}),
+        ],
+        slide_index=4,
+        hold=2.5,
+    )
+    stage(
+        [
+            ("slides_live_add_media", {"slide_index": 4, "name": "Audio", "media_path": str(assets["audio"])}),
+            ("slides_live_add_media", {"slide_index": 4, "name": "Video", "media_path": str(assets["video"])}),
+            ("slides_live_get_media", {"slide_index": 4}),
+            ("slides_live_set_hyperlink", {"slide_index": 4, "shape_name": "Accent", "url": "https://example.com"}),
+            ("slides_live_set_alt_text", {"slide_index": 4, "shape_name": "Logo", "text": "Blue logo"}),
+            ("slides_live_set_transition", {"slide_index": 4, "effect": "fade", "advance_on_click": True}),
+            ("slides_live_add_animation", {"slide_index": 4, "shape_name": "Accent", "effect": "fade"}),
+        ],
+        slide_index=4,
+        hold=2.5,
+    )
+    stage(
+        [("slides_live_add_section", {"name": "Review"}), ("slides_live_get_sections", {})],
+        slide_index=4,
+        hold=1.7,
+    )
+    stage(
+        [("slides_live_delete_section", {"section_index": 1})],
+        slide_index=4,
+        hold=1.7,
+    )
+    stage(
+        [("slides_live_set_slide_numbers", {"visible": True})],
+        slide_index=4,
+        hold=1.5,
+    )
+    stage(
+        [("slides_live_set_slide_visibility", {"slide_index": 4, "visible": False})],
+        slide_index=4,
+        after_slide_index=1,
+        hold=1.8,
+    )
+    single("slides_live_export_pdf", {}, slide_index=1, hold=1.0)
+    single("slides_live_save", {}, slide_index=1, hold=1.8)
+    stage(
+        [("slides_live_delete_slide", {"slide_index": 2})],
+        slide_index=2,
+        after_slide_index=1,
+        hold=2.0,
+    )
+
+
+def _word_continuous_showcase(app: Any, target: Path, root: Path, assets: dict[str, Path]) -> None:
+    """Run the Word matrix in short CLI chapters without closing the live doc."""
+
+    del app
+    current_target = target.resolve()
+    sequence = 1
+
+    def chapter(operations: list[tuple[str, dict[str, Any]]], *, hold: float = 1.8) -> None:
+        nonlocal current_target, sequence
+        _apply_batch(
+            "word",
+            current_target,
+            operations,
+            root,
+            sequence,
+            display_pause=0.45,
+            keep_live=True,
+        )
+        if any(operation not in WORD_COM_READ_OPERATIONS for operation, _args in operations):
+            current_target = _output_for("word", operations[0][0], root, sequence).resolve()
+        sequence += 1
+        time.sleep(hold)
+
+    chapter(
+        [
+            ("word_live_insert_text", {"text": "Draft target text\r", "position": "end"}),
+            ("word_live_insert_text", {"text": "Heading One\r", "position": "end"}),
+            ("word_live_insert_text", {"text": "Heading Two\r", "position": "end"}),
+            ("word_live_insert_text", {"text": "A short paragraph for the white-collar showcase.\r", "position": "end"}),
+        ],
+        hold=2.2,
+    )
+    chapter(
+        [
+            ("word_live_list_open", {}),
+            ("word_live_get_text", {}),
+            ("word_live_take_snapshot", {}),
+            ("word_live_snapshot_status", {}),
+            ("word_live_get_page_text", {"page": 1}),
+            ("word_live_get_paragraph_format", {"start_paragraph": 1, "end_paragraph": 2}),
+            ("word_live_get_info", {}),
+            ("word_live_list_styles", {}),
+            ("word_live_list_hyperlinks", {}),
+            ("word_live_list_notes", {}),
+            ("word_live_list_content_controls", {}),
+            ("word_live_get_protection", {}),
+            ("word_live_find_text", {"search_text": "Draft", "max_results": 10}),
+            ("word_live_list_cross_reference_items", {}),
+            ("word_live_diagnose_layout", {}),
+            ("word_live_get_comments", {}),
+        ],
+        hold=1.2,
+    )
+    chapter(
+        [
+            ("word_live_replace_text", {"find_text": "Draft target text", "replace_text": "Reviewed target text", "replace_all": True}),
+            ("word_live_insert_paragraphs", {"paragraphs": ["Inserted A", "Inserted B"], "position": "end"}),
+            ("word_live_format_text", {"start_paragraph": 1, "end_paragraph": 1, "bold": True, "font_name": "Arial", "font_size": 16}),
+            ("word_live_apply_style", {"paragraph_index": 1, "style_name": "Title"}),
+            ("word_live_apply_list", {"start_paragraph": 2, "end_paragraph": 3, "list_type": "bullet"}),
+            ("word_live_set_paragraph_spacing", {"paragraph_index": 1, "space_after_pt": 6, "line_spacing_rule": "single"}),
+            ("word_live_take_snapshot", {}),
+            ("word_live_insert_text", {"text": " inserted", "position": "end"}),
+            ("word_live_get_diff", {}),
+        ],
+        hold=2.0,
+    )
+    chapter(
+        [
+            ("word_live_add_hyperlink", {"paragraph_index": 1, "url": "https://example.com", "display_text": "Example"}),
+            ("word_live_list_hyperlinks", {}),
+            ("word_live_remove_hyperlink", {"hyperlink_index": 1}),
+            ("word_live_list_hyperlinks", {}),
+            ("word_live_add_note", {"paragraph_index": 1, "text": "Footnote text", "note_type": "footnote"}),
+            ("word_live_list_notes", {}),
+            ("word_live_set_content_control", {"target_text": "Reviewed target text", "title": "ClientName", "value": "Example Client", "tag": "client-name"}),
+            ("word_live_list_content_controls", {}),
+            ("word_live_add_bookmark", {"paragraph_index": 1, "bookmark_name": "CrossRef"}),
+            ("word_live_list_cross_reference_items", {}),
+            ("word_live_insert_cross_reference", {"ref_type": "Bookmark", "ref_item": "CrossRef", "paragraph_index": 1}),
+        ],
+        hold=2.0,
+    )
+    chapter(
+        [
+            ("word_live_add_table", {"rows": 2, "cols": 2, "data": [["A", "B"], ["C", "D"]]}),
+            ("word_live_format_table", {"table_index": -1, "autofit": "window", "table_alignment": "center"}),
+            ("word_live_modify_table", {"table_index": 1, "operation": "set_cell", "row": 1, "col": 1, "text": "Changed"}),
+            ("word_live_insert_image", {"image_path": str(assets["image"]), "position": "end", "width_pt": 72, "height_pt": 40}),
+            ("word_live_insert_equation", {"equation": "x = y", "position": "end"}),
+        ],
+        hold=2.0,
+    )
+    chapter(
+        [("word_live_add_comment", {"start": 6, "end": 18, "text": "Review this"}), ("word_live_get_comments", {}), ("word_live_save", {})],
+        hold=1.8,
+    )
+    chapter(
+        [("word_live_add_comment", {"start": 20, "end": 32, "text": "Second review"}), ("word_live_get_comments", {}), ("word_live_save", {})],
+        hold=1.8,
+    )
+    chapter(
+        [("word_live_reply_to_comment", {"comment_index": 2, "text": "Noted"}), ("word_live_resolve_comment", {"comment_index": 2, "resolve": True}), ("word_live_save", {})],
+        hold=1.8,
+    )
+    chapter(
+        [
+            ("word_live_delete_comment", {"comment_index": 2}),
+            ("word_live_replace_text", {"find_text": "Heading One", "replace_text": "Tracked", "replace_all": True, "track_changes": True}),
+            ("word_live_list_revisions", {}),
+            ("word_live_accept_revisions", {}),
+            ("word_live_replace_text", {"find_text": "Heading Two", "replace_text": "Rejected", "replace_all": True, "track_changes": True}),
+            ("word_live_reject_revisions", {}),
+            ("word_live_toggle_track_changes", {"enable": True}),
+            ("word_live_set_protection", {"protection_type": "read_only"}),
+            ("word_live_get_protection", {}),
+            ("word_live_set_protection", {"protection_type": "none"}),
+        ],
+        hold=2.0,
+    )
+    chapter(
+        [
+            ("word_live_set_page_layout", {"orientation": "portrait", "page_width_inches": 8.5, "page_height_inches": 11}),
+            ("word_live_add_header_footer", {"header_text": "White-collar showcase", "footer_text": "Live COM"}),
+            ("word_live_add_watermark", {"text": "DRAFT"}),
+            ("word_live_add_page_numbers", {"position": "footer", "alignment": "center", "prefix": "Page "}),
+            ("word_live_add_page_numbers", {"position": "header", "alignment": "right", "prefix": "Page ", "include_total": True, "suffix": " total"}),
+        ],
+        hold=2.2,
+    )
+    chapter(
+        [
+            ("word_live_remove_watermark", {"text": "DRAFT"}),
+            ("word_live_remove_header_footer", {"position": "both", "section_index": 1}),
+            ("word_live_add_section_break", {"break_type": "new_page"}),
+            ("word_live_insert_toc", {"position": "start", "lower_heading_level": 2}),
+            ("word_live_update_fields", {}),
+            ("word_live_setup_heading_numbering", {"h1_paragraphs": [2], "h2_paragraphs": [3]}),
+        ],
+        hold=2.0,
+    )
+    chapter(
+        [
+            ("word_live_get_undo_history", {}),
+            ("word_live_set_core_properties", {"title": "White-collar showcase", "author": "white-collar"}),
+            ("word_live_save", {}),
+            ("word_live_undo", {"times": 1}),
+            ("word_live_merge_document", {"source_path": str(assets["merge"])}),
+            ("word_live_delete_text", {"target_text": "Merged source marker"}),
+        ],
+        hold=2.0,
+    )
+    _apply_operation(
+        "word",
+        current_target,
+        "word_live_compare_documents",
+        {"source_path": str(assets["compare"])},
+        root,
+        sequence,
+        display_pause=0.25,
+    )
+    _apply_operation("word", current_target, "word_live_export_pdf", {}, root, sequence + 1, display_pause=0.25)
+
+
+def _slides_continuous_showcase(app: Any, presentation: Any, target: Path, root: Path, assets: dict[str, Path]) -> None:
+    """Run PowerPoint in three continuous CLI plans with slide-aware pauses."""
+
+    template_result = _apply_operation(
+        "slides",
+        target,
+        "slides_live_save_template",
+        {},
+        root,
+        1,
+    )
+    del template_result
+    main_operations = [
+        ("slides_live_insert_text", {"slide_index": 1, "shape_name": "Body", "text": " inserted"}),
+        ("slides_live_replace_text", {"find_text": "Draft", "replace_text": "Final", "replace_all": True}),
+        ("slides_live_list_open", {}),
+        ("slides_live_get_info", {}),
+        ("slides_live_get_text", {}),
+        ("slides_live_get_slide_text", {"slide_index": 1}),
+        ("slides_live_find_text", {"search_text": "Final"}),
+        ("slides_live_get_masters", {}),
+        ("slides_live_get_layouts", {}),
+        ("slides_live_get_placeholders", {"master": 1}),
+        ("slides_live_get_notes", {"slide_index": 1}),
+        ("slides_live_get_sections", {}),
+        ("slides_live_get_media", {}),
+        ("slides_live_apply_template", {"source_path": str(assets["template"])}),
+        ("slides_live_add_slide", {"slide_index": 3, "title": "New Slide"}),
+        ("slides_live_set_title", {"slide_index": 3, "title": "Reviewed Slide"}),
+        ("slides_live_add_textbox", {"slide_index": 3, "name": "Inserted Text", "text": "Added body", "top": 130}),
+        ("slides_live_format_text", {"slide_index": 3, "shape_name": "Inserted Text", "font_name": "Arial", "font_size": 24, "bold": True}),
+        ("slides_live_set_layout", {"slide_index": 3, "layout": 1}),
+        ("slides_live_add_shape", {"slide_index": 3, "name": "Accent", "shape_type": "rectangle", "fill_color": "204060"}),
+        ("slides_live_add_image", {"slide_index": 3, "name": "Logo", "image_path": str(assets["image"]), "top": 240, "width": 120, "height": 75}),
+        ("slides_live_set_background", {"slide_index": 3, "color": "F0F4F8"}),
+        ("slides_live_duplicate_slide", {"slide_index": 3}),
+        ("slides_live_reorder_slide", {"slide_index": 4, "to_index": 2}),
+        ("slides_live_set_notes", {"slide_index": 4, "text": "Review notes from the CLI"}),
+        ("slides_live_get_notes", {"slide_index": 4}),
+        ("slides_live_set_slide_size", {"width_inches": 10, "height_inches": 5.625}),
+        ("slides_live_add_shape", {"slide_index": 4, "name": "GroupA", "shape_type": "rectangle", "left": 100, "top": 350}),
+        ("slides_live_add_shape", {"slide_index": 4, "name": "GroupB", "shape_type": "rectangle", "left": 300, "top": 350}),
+    ]
+    _apply_batch("slides", target, main_operations, root, 2, display_pause=0.55)
+    main_output = _output_for("slides", main_operations[0][0], root, 2).resolve()
+    # PowerPoint's SaveCopyAs leaves the edited presentation live.  Continue
+    # against that same window instead of reopening the review copy.
+    _show_slide(app, presentation, 4)
+    group_result = _apply_operation(
+        "slides",
+        target,
+        "slides_live_group",
+        {"slide_index": 4, "shape_names": ["GroupA", "GroupB"]},
+        root,
+        3,
+        display_pause=0.8,
+    )
+    group_name = group_result["data"]["operations"][0]["shape"]
+    grouped_output = target.resolve()
+    _show_slide(app, presentation, 4)
+    remaining_operations = [
+        ("slides_live_ungroup", {"slide_index": 4, "shape_name": group_name}),
+        ("slides_live_align", {"slide_index": 4, "shape_names": ["Accent", "Logo"], "alignment": "left"}),
+        ("slides_live_distribute", {"slide_index": 4, "shape_names": ["Accent", "Logo", "Inserted Text"], "direction": "horizontal"}),
+        ("slides_live_z_order", {"slide_index": 4, "shape_name": "Accent", "command": "bring_to_front"}),
+        ("slides_live_crop_image", {"slide_index": 4, "shape_name": "Logo", "left": 2, "top": 2, "right": 1, "bottom": 1}),
+        ("slides_live_rotate_shape", {"slide_index": 4, "shape_name": "Accent", "degrees": 15}),
+        ("slides_live_add_section", {"name": "Review"}),
+        ("slides_live_get_sections", {}),
+        ("slides_live_delete_section", {"section_index": 1}),
+        ("slides_live_add_table", {"slide_index": 4, "name": "DataTable", "rows": 2, "columns": 2, "data": [["A", "B"], ["C", "D"]]}),
+        ("slides_live_set_table_cell", {"slide_index": 4, "shape_name": "DataTable", "row": 1, "column": 1, "text": "Updated"}),
+        ("slides_live_add_chart", {"slide_index": 4, "name": "DataChart", "chart_type": "column", "title": "Results", "data": [["Category", "Value"], ["A", 1], ["B", 2]]}),
+        ("slides_live_add_smartart", {"slide_index": 4, "name": "FlowSmartArt", "layout": 1, "nodes": ["Start"]}),
+        ("slides_live_add_media", {"slide_index": 4, "name": "Audio", "media_path": str(assets["audio"])}),
+        ("slides_live_add_media", {"slide_index": 4, "name": "Video", "media_path": str(assets["video"])}),
+        ("slides_live_get_media", {"slide_index": 4}),
+        ("slides_live_set_hyperlink", {"slide_index": 4, "shape_name": "Accent", "url": "https://example.com"}),
+        ("slides_live_set_alt_text", {"slide_index": 4, "shape_name": "Logo", "text": "Blue logo"}),
+        ("slides_live_set_transition", {"slide_index": 4, "effect": "fade", "advance_on_click": True}),
+        ("slides_live_add_animation", {"slide_index": 4, "shape_name": "Accent", "effect": "fade"}),
+        ("slides_live_set_slide_numbers", {"visible": True}),
+        ("slides_live_set_slide_visibility", {"slide_index": 4, "visible": False}),
+        ("slides_live_save", {}),
+        ("slides_live_delete_slide", {"slide_index": 2}),
+    ]
+    _apply_batch("slides", grouped_output, remaining_operations, root, 4, display_pause=0.65)
+    _show_slide(app, presentation, 1)
+    _apply_operation("slides", grouped_output, "slides_live_export_pdf", {}, root, 5, display_pause=0.25)
+    time.sleep(2.5)
+
+
 def record(output: Path, *, force: bool = False) -> Path:
     if output.exists() and not force:
         raise RuntimeError(f"output already exists; pass --force to replace it: {output}")
@@ -711,13 +1447,12 @@ def record(output: Path, *, force: bool = False) -> Path:
         try:
             word_hwnd, _word_title = _window_for_fragment(word_source.stem)
             _maximize_window(int(word_app.Windows(1).Hwnd))
-            _run_cli(["word", "inspect", str(word_source), "--backend", "com"])
             word_clip = root / "word-showcase.mp4"
             _capture_segment(
                 ffmpeg,
                 word_hwnd,
                 word_clip,
-                lambda: (_word_read_showcase(word_source, root), _word_mutation_showcase(word_source, root, word_assets)),
+                lambda: _word_continuous_showcase(word_app, word_source, root, word_assets),
             )
         finally:
             _close_word(word_app, word_document)
@@ -731,13 +1466,12 @@ def record(output: Path, *, force: bool = False) -> Path:
         try:
             slides_hwnd, _slides_title = _window_for_fragment(slides_source.stem)
             _maximize_window(slides_hwnd)
-            _run_cli(["slides", "inspect", str(slides_source), "--backend", "com"])
             slides_clip = root / "slides-showcase.mp4"
             _capture_segment(
                 ffmpeg,
                 slides_hwnd,
                 slides_clip,
-                lambda: (_slides_read_showcase(slides_source, root), _slides_mutation_showcase(slides_source, root, slides_assets)),
+                lambda: _slides_continuous_showcase(slides_app, slides_presentation, slides_source, root, slides_assets),
             )
         finally:
             _close_slides(slides_app, slides_presentation)

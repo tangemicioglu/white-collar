@@ -95,6 +95,8 @@ class Win32WordComAdapter:
             with self._undo(app, name) if name in WORD_COM_MUTATING_OPERATIONS else contextlib.nullcontext():
                 operations.append(method(app, doc, args))
             self._history.append({"operation": name, "document": doc.Name, "at": dt.datetime.now(dt.timezone.utc).isoformat()})
+            if not dry_run and plan.display:
+                time.sleep(float(plan.display.get("pause_after_operation", 0)))
         if not dry_run and doc is not None and plan.write.mode != "none" and not any(
             operation["op"] in WORD_COM_SELF_WRITING_OPERATIONS for operation in plan.operations
         ):
@@ -195,7 +197,8 @@ class Win32WordComAdapter:
             raise ValidationError("save-as path already exists", details={"path": str(output)})
         output.parent.mkdir(parents=True, exist_ok=True)
         save_copy_as = getattr(doc, "SaveCopyAs", None)
-        if callable(save_copy_as):
+        keep_live_as_output = bool(plan.display and plan.display.get("keep_live_as_output"))
+        if callable(save_copy_as) and not keep_live_as_output:
             try:
                 save_copy_as(str(output))
             except Exception:
@@ -204,13 +207,13 @@ class Win32WordComAdapter:
                 # name, so restore the original open target after writing.
                 source = Path(str(_safe_value(doc, "FullName", "")))
                 doc.SaveAs2(FileName=str(output), FileFormat=_file_format(output))
-                if source.resolve() != output.resolve():
+                if source.resolve() != output.resolve() and not keep_live_as_output:
                     doc.Close(SaveChanges=False)
                     doc = app.Documents.Open(FileName=str(source), ReadOnly=False, AddToRecentFiles=False)
         else:
             source = Path(str(_safe_value(doc, "FullName", "")))
             doc.SaveAs2(FileName=str(output), FileFormat=_file_format(output))
-            if source.resolve() != output.resolve():
+            if source.resolve() != output.resolve() and not keep_live_as_output:
                 doc.Close(SaveChanges=False)
                 doc = app.Documents.Open(FileName=str(source), ReadOnly=False, AddToRecentFiles=False)
         self._commit_pending_comment_edits(app, doc, output, reopen=False)

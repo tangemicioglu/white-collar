@@ -28,6 +28,14 @@
       ]
     },
     "policy": {"enum": ["read-only", "review", "edit", "send"]},
+    "display": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pause_after_operation": {"type": "number", "minimum": 0, "maximum": 10},
+        "keep_live_as_output": {"type": "boolean"}
+      }
+    },
     "operations": {
       "type": "array",
       "minItems": 1,

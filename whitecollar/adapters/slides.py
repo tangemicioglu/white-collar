@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import time
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -74,6 +75,16 @@ class PowerPointComAdapter:
             if method is None:
                 raise ValidationError(f"PowerPoint operation is registered but not implemented: {name}")
             operations.append(method(app, presentation, args))
+            if not dry_run and plan.display:
+                slide_index = args.get("slide_index")
+                if slide_index is not None:
+                    try:
+                        window = presentation.Windows(1)
+                        window.Activate()
+                        window.View.GotoSlide(int(slide_index))
+                    except Exception:
+                        pass
+                time.sleep(float(plan.display.get("pause_after_operation", 0)))
         if not dry_run and plan.write.mode != "none" and not any(
             operation["op"] in SLIDES_COM_SELF_WRITING_OPERATIONS for operation in plan.operations
         ):

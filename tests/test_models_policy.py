@@ -25,6 +25,16 @@ def test_unknown_plan_fields_are_rejected():
         Plan.from_dict(raw)
 
 
+def test_display_hints_are_bounded_and_versioned():
+    raw = json.loads(Path("tests/fixtures/word-replace-plan.json").read_text(encoding="utf-8"))
+    raw["display"] = {"pause_after_operation": 0.5, "keep_live_as_output": True}
+    plan = Plan.from_dict(raw)
+    assert plan.display == {"pause_after_operation": 0.5, "keep_live_as_output": True}
+    raw["display"]["pause_after_operation"] = 11
+    with pytest.raises(ValidationError, match="between 0 and 10"):
+        Plan.from_dict(raw)
+
+
 def test_read_only_denies_even_a_dry_run():
     raw = json.loads(Path("tests/fixtures/word-replace-plan.json").read_text(encoding="utf-8"))
     raw["policy"] = "read-only"

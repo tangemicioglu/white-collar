@@ -123,6 +123,7 @@ class Plan:
     policy: Literal["read-only", "review", "edit", "send"]
     operations: tuple[dict[str, Any], ...]
     write: WriteIntent
+    display: dict[str, Any] | None = None
 
     @classmethod
     def from_dict(cls, raw: Any) -> "Plan":
@@ -131,7 +132,7 @@ class Plan:
         _expect_keys(
             raw,
             required={"schema", "app", "target", "policy", "operations", "write"},
-            optional=set(),
+            optional={"display"},
             context="plan",
         )
         if raw["schema"] != PLAN_SCHEMA:
@@ -146,11 +147,30 @@ class Plan:
         if not isinstance(operations, list) or not operations:
             raise ValidationError("operations must be a non-empty array")
         normalized = tuple(_validate_operation(raw["app"], operation, index) for index, operation in enumerate(operations))
-        return cls(PLAN_SCHEMA, raw["app"], target, raw["policy"], normalized, write)
+        display = raw.get("display")
+        if display is not None:
+            if not isinstance(display, dict):
+                raise ValidationError("display must be an object")
+            _expect_keys(
+                display,
+                required=set(),
+                optional={"pause_after_operation", "keep_live_as_output"},
+                context="display",
+            )
+            pause = display.get("pause_after_operation", 0)
+            if isinstance(pause, bool) or not isinstance(pause, (int, float)) or pause < 0 or pause > 10:
+                raise ValidationError("display.pause_after_operation must be between 0 and 10 seconds")
+            keep_live = display.get("keep_live_as_output", False)
+            if not isinstance(keep_live, bool):
+                raise ValidationError("display.keep_live_as_output must be a boolean")
+            display = {"pause_after_operation": float(pause), "keep_live_as_output": keep_live}
+        return cls(PLAN_SCHEMA, raw["app"], target, raw["policy"], normalized, write, display)
 
     def to_dict(self) -> dict[str, Any]:
         value = asdict(self)
         value["operations"] = list(self.operations)
+        if value.get("display") is None:
+            value.pop("display", None)
         return value
 
 

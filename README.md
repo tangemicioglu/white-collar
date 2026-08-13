@@ -37,13 +37,20 @@ Their app-specific operation catalogs are documented in `docs/`.
 ## Recorded showcase
 
 The [recorded Office showcase](docs/demo/white-collar-office-demo.mp4) runs the
-same broad real-operation coverage as the Word and PowerPoint E2E gates. It
-shows the real windows changing through dozens of `white-collar ... apply
---plan` operations: document structure, formatting, tables, comments,
-revisions, layout, metadata, media, slide objects, charts, notes, sections,
-motion, templates, and exports. The fixtures are disposable and synthetic;
-the edits are performed by the live COM adapters, not by a mock or a rendered
-animation.
+same broad real-operation coverage as the Word and PowerPoint E2E gates. Word
+starts as a blank real document and is filled through short CLI chapters; the
+same live Word window remains visible while content, formatting, tables,
+comments, revisions, layout, metadata, and exports are exercised. PowerPoint
+shows the actual affected slide as slides, shapes, charts, notes, sections,
+media, motion, templates, and exports are applied. The fixtures are disposable
+and synthetic; the edits are performed by the live COM adapters, not by a mock
+or a rendered animation.
+
+The recorder uses a bounded display hint for these disposable review copies so
+Word can keep the live COM document open after a save-as chapter. This improves
+visual continuity without changing normal save-as behavior or permission
+defaults. A few Word title changes reflect real COM save-as boundaries; the
+document is not closed and reopened for every operation.
 
 The CLI’s own `word_screen_capture` and `slides_screen_capture` operations
 remain sensitive, explicit-grant capabilities; the README video uses a local
