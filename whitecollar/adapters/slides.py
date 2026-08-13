@@ -21,14 +21,14 @@ class PowerPointComAdapter:
         app_factory: Callable[[], Any] | None = None,
         screenshotter: Callable[[int, Path], None] | None = None,
     ) -> None:
-        self._app_factory = app_factory or _default_powerpoint_app
+        self._app_factory = app_factory
         self._screenshotter = screenshotter or capture_window
 
-    def _get_app(self) -> Any:
-        return self._app_factory()
+    def _get_app(self, target: str | Path | None = None) -> Any:
+        return self._app_factory() if self._app_factory is not None else _default_powerpoint_app(target)
 
     def inspect(self, target: Path, *, render_dir: Path | None = None) -> dict[str, Any]:
-        app = self._get_app()
+        app = self._get_app(target)
         presentation, opened_here = _find_or_open_for_inspect(app, target)
         try:
             data = self._get_info(presentation) | {"backend": "powerpoint-com"}
@@ -54,7 +54,7 @@ class PowerPointComAdapter:
                     for operation in plan.operations
                 ],
             }
-        app = self._get_app()
+        app = self._get_app(plan.target.path)
         presentation = _find_presentation(app, plan.target.path)
         if not dry_run and plan.write.mode != "none":
             self._prepare_write(presentation, plan)
@@ -727,11 +727,22 @@ def _operation_args(operation: dict[str, Any]) -> dict[str, Any]:
     return dict(operation.get("args", {}))
 
 
-def _default_powerpoint_app() -> Any:
+def _default_powerpoint_app(target: str | Path | None = None) -> Any:
     try:
-        from win32com.client import Dispatch, GetActiveObject
+        from win32com.client import Dispatch, GetActiveObject, GetObject
     except ImportError as exc:
         raise ImportError("pywin32 is required for --backend com") from exc
+    if target:
+        wanted = Path(str(target)).resolve()
+        try:
+            presentation = GetObject(str(target))
+            candidate = presentation.Application
+            for open_presentation in _iter_collection(getattr(candidate, "Presentations", [])):
+                full_name = str(_safe_value(open_presentation, "FullName", ""))
+                if full_name and Path(full_name).resolve() == wanted:
+                    return candidate
+        except Exception:
+            pass
     try:
         return GetActiveObject("PowerPoint.Application")
     except Exception:
