@@ -1,15 +1,28 @@
 # white-collar
 
-`white-collar` is an agent-friendly local command-line control plane for a small,
-intentional set of Microsoft Office workflows. It gives Word, PowerPoint, and
-Outlook adapters shared targeting, policy checks, versioned plans and results,
-dry-runs, save-as/snapshot rules, and validation while keeping each application's
-commands app-specific.
+<p align="center">
+  <video src="https://github.com/tangemicioglu/white-collar/raw/refs/heads/main/docs/demo/white-collar-office-demo-2x.mp4" controls muted playsinline width="100%">
+    <a href="docs/demo/white-collar-office-demo-2x.mp4">Watch the Office showcase</a>
+  </video>
+</p>
+
+`white-collar` lets an agent work with real Microsoft Office documents through a
+small, predictable local CLI. An agent can inspect a file, propose a structured
+plan, pass through a human-controlled policy gate, make native Word or
+PowerPoint changes in the actual desktop application, and receive a compact
+machine-readable result with validation and a reviewable output.
+
+The point is not to expose every COM method. It is to make common Office work
+legible and safe: target the right file, declare the intended policy, keep
+application semantics inside the right adapter, show meaningful changes in the
+live Office window, and preserve snapshots or save-as outputs when a workflow
+needs review. Outlook is separately guarded because mail touches other people
+and potentially confidential information.
 
 This repository is an early v0.1 implementation. It is published as source for
 review and local use; no Python package release is currently provided.
 
-## What works today
+## The practical boundary
 
 The supported runtime is Windows with desktop Microsoft Office installed. Word,
 PowerPoint, and Outlook all use their finite semantic COM adapters; there is no
@@ -36,7 +49,7 @@ Their app-specific operation catalogs are documented in `docs/`.
 
 ## Recorded showcase
 
-The [recorded Office showcase](docs/demo/white-collar-office-demo.mp4) runs the
+The [recorded Office showcase](docs/demo/white-collar-office-demo-2x.mp4) runs the
 same broad real-operation coverage as the Word and PowerPoint E2E gates. Word
 starts as a blank real document and is filled through short CLI chapters; the
 same live Word window remains visible while content, formatting, tables,
@@ -52,10 +65,6 @@ visual continuity without changing normal save-as behavior or permission
 defaults. A few Word title changes reflect real COM save-as boundaries; the
 document is not closed and reopened for every operation.
 
-For a shorter review, use the [2x accelerated showcase](docs/demo/white-collar-office-demo-2x.mp4).
-It is a post-processed copy of the same recording; the full-speed video remains
-available when the individual transitions need closer inspection.
-
 The CLI’s own `word_screen_capture` and `slides_screen_capture` operations
 remain sensitive, explicit-grant capabilities; the README video uses a local
 window recorder instead, so recording does not broaden the Office permission
@@ -64,7 +73,8 @@ defaults.
 To reproduce it on Windows with desktop Office and `ffmpeg` on `PATH`:
 
 ```powershell
-python scripts/record-office-demo.py --output docs/demo/white-collar-office-demo.mp4 --force
+python scripts/record-office-demo.py --output $env:TEMP\white-collar-office-demo-source.mp4 --force
+ffmpeg -y -i $env:TEMP\white-collar-office-demo-source.mp4 -vf "setpts=0.5*PTS" -an -c:v libx264 -crf 20 -movflags +faststart docs/demo/white-collar-office-demo-2x.mp4
 ```
 
 Recording is an optional demonstration tool. The regular CLI does not require
