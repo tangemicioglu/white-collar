@@ -67,16 +67,6 @@ remain sensitive, explicit-grant capabilities; the README video uses a local
 window recorder instead, so recording does not broaden the Office permission
 defaults.
 
-To reproduce it on Windows with desktop Office and `ffmpeg` on `PATH`:
-
-```powershell
-python scripts/record-office-demo.py --output $env:TEMP\white-collar-office-demo-source.mp4 --force
-ffmpeg -y -i $env:TEMP\white-collar-office-demo-source.mp4 -vf "setpts=0.5*PTS" -an -c:v libx264 -crf 20 -movflags +faststart docs/demo/white-collar-office-demo-2x.mp4
-```
-
-Recording is an optional demonstration tool. The regular CLI does not require
-`ffmpeg`.
-
 ## Setup
 
 Windows, desktop Word/PowerPoint/Outlook as applicable, and Python 3.11 or newer

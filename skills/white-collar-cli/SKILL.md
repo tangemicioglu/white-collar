@@ -24,6 +24,7 @@ to arbitrary COM automation or to upstream MCP servers.
 - New blank Word document: `word create --output FILE.docx`.
 - Simple Word replacement: `word replace`; complex or live Word semantics: `word apply --plan`.
 - PowerPoint inspection or slide images: `slides inspect`; semantic live edits: `slides apply --plan`.
+- PowerPoint title/body edits: use the native `Title`, `Body`, `Content`, or `Subtitle` selectors; use `slides_live_add_textbox` only for deliberate freeform text.
 - New blank PowerPoint presentation: `slides create --output FILE.pptx`.
 - Outlook metadata search or read: `mail search` and `mail read`.
 - Outlook draft composition: `mail draft`; sending an existing draft: `mail send`.

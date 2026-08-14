@@ -49,15 +49,57 @@ Save-as and creation are `review`; in-place requires `edit` and a distinct
 snapshot. The target deck must already be open in PowerPoint for live mutation
 of an existing presentation.
 
+## Native placeholders and semantic text
+
+Text operations address PowerPoint objects semantically. When a slide has
+native placeholders, `shape_name` values resolve as follows:
+
+- `Title` selects a title, center-title, or vertical-title placeholder.
+- `Body` or `Content` selects a body/content placeholder.
+- `Subtitle` selects a subtitle placeholder.
+
+`slides_live_insert_text`, `slides_live_set_title`, and
+`slides_live_format_text` therefore edit the built-in field on the selected
+slide rather than adding a small overlay textbox. `slides_live_add_slide`
+creates a title-and-content (`ppLayoutText`) slide and initializes its native
+title field. Use `slides_live_add_textbox` only when a deliberate freeform
+textbox is wanted. A plan can still use an exact shape name or positive
+`shape_index` for non-placeholder objects.
+
 ## Semantic catalog
 
-The finite COM catalog covers reading (`slides_live_get_text`,
-`slides_live_get_slide_text`, `slides_live_find_text`), text, slide lifecycle,
-shapes, images, backgrounds, notes, save, and screen capture. Examples include
-`slides_live_insert_text`, `slides_live_add_slide`, `slides_live_duplicate_slide`,
-`slides_live_add_image`, `slides_live_set_notes`, and `slides_screen_capture`.
-These are not arbitrary COM dispatch methods. Do not copy `ppt-mcp` source or
-turn its tool inventory into CLI commands.
+The finite COM catalog is grouped by behavior:
 
-When an exact operation or argument shape is needed, load the repository's
-`docs/powerpoint-com-operations.md` or inspect the existing fixture plans.
+- Reading: `slides_live_list_open`, `slides_live_get_info`,
+  `slides_live_get_text`, `slides_live_get_slide_text`,
+  `slides_live_find_text`, `slides_live_get_masters`,
+  `slides_live_get_layouts`, `slides_live_get_placeholders`,
+  `slides_live_get_notes`, `slides_live_get_sections`,
+  `slides_live_get_media`.
+- Text: `slides_live_insert_text`, `slides_live_replace_text`,
+  `slides_live_set_title`, `slides_live_add_textbox`,
+  `slides_live_format_text`.
+- Slide lifecycle: `slides_live_create_presentation`,
+  `slides_live_add_slide`, `slides_live_delete_slide`,
+  `slides_live_duplicate_slide`, `slides_live_reorder_slide`,
+  `slides_live_set_slide_size`, `slides_live_set_layout`,
+  `slides_live_apply_template`, `slides_live_save_template`,
+  `slides_live_add_section`, `slides_live_delete_section`,
+  `slides_live_set_slide_visibility`, `slides_live_set_slide_numbers`.
+- Objects and geometry: `slides_live_add_shape`, `slides_live_add_image`,
+  `slides_live_set_background`, `slides_live_group`,
+  `slides_live_ungroup`, `slides_live_align`, `slides_live_distribute`,
+  `slides_live_z_order`, `slides_live_crop_image`,
+  `slides_live_rotate_shape`.
+- Structured/media objects: `slides_live_add_table`,
+  `slides_live_set_table_cell`, `slides_live_add_chart`,
+  `slides_live_add_smartart`, `slides_live_add_media`.
+- Links, accessibility, and motion: `slides_live_set_hyperlink`,
+  `slides_live_set_alt_text`, `slides_live_set_transition`,
+  `slides_live_add_animation`.
+- Output and capture: `slides_live_set_notes`, `slides_live_export_pdf`,
+  `slides_live_save`, `slides_screen_capture`.
+
+These are not arbitrary COM dispatch methods. Do not copy `ppt-mcp` source or
+turn its tool inventory into CLI commands. For exact argument shapes, load the
+repository's `docs/powerpoint-com-operations.md`.
